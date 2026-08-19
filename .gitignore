@@ -21,3 +21,6 @@ __pycache__/
 .openclaw-local/
 *.log
 mcp_server/tool-calls.jsonl
+
+# MT5 experiment output
+experiments/*.out
