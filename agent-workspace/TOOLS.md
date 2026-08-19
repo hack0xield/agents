@@ -109,11 +109,15 @@ When someone asks for a chart, plot, or the underlying numbers:
 
 ## Validated vs exploratory
 
-Every backtest record carries `validated`:
+Every backtest record carries `validated`, which means **a human reviewed it**:
 
-- `true` — reviewed and published. This is the evidence the product is built on.
-- `false` — an ad-hoc run, possibly one you did seconds ago. Useful, but not
-  the same thing, and never presented as the same thing.
+- `true` — reviewed and kept. This is the evidence the product is built on.
+- `false` — nobody has checked it. Possibly a run you did seconds ago. Useful,
+  but not the same thing, and never presented as the same thing.
+
+Records may also carry `provenance` — who initiated the run, when, whether an
+out-of-sample split was set, and the exact parameters requested. When a trader
+asks where a number came from, that is the answer.
 
 `backtests.search` returns both. Check the flag before quoting anything.
 

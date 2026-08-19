@@ -73,6 +73,22 @@ def _dir_signature() -> tuple:
     return tuple(out)
 
 
+def _provenance(run_dir: Path) -> dict | None:
+    """Who initiated this run and whether anyone reviewed it.
+
+    Absent on runs made before this was recorded, and on anything produced
+    directly by the backtester CLI — those are treated as belonging to whoever
+    ran them, which is the directory's job to say.
+    """
+    f = run_dir / "provenance.json"
+    if not f.is_file():
+        return None
+    try:
+        return json.loads(f.read_text())
+    except (OSError, ValueError):
+        return None
+
+
 def _normalize(run_name: str, summary: dict, version: int) -> dict:
     """One run -> one pattern version, in the spec §12 machine-readable shape."""
     period = summary.get("period", {})
@@ -203,7 +219,13 @@ def _index(_signature: tuple) -> list[dict]:
             except (OSError, ValueError):
                 continue
             rec = _normalize(name, summary, version)
-            rec["validated"] = validated
+            # Provenance in the run wins over the directory it sits in. The
+            # directory is organisation; provenance is fact. A run the
+            # assistant produced and a human later reviewed can be marked so
+            # without moving files around.
+            prov = _provenance(root / name)
+            rec["validated"] = prov["reviewed"] if prov else validated
+            rec["provenance"] = prov
             rec["runs_root"] = str(root)
             records.append(rec)
     return records

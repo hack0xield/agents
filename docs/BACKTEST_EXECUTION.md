@@ -32,25 +32,50 @@ a different liability profile.
 
 ## What contains it
 
-The capability is unrestricted; the *bookkeeping* is what keeps this
-reversible.
+The capability is unrestricted. What keeps it reversible is knowing which runs
+were reviewed — and that is recorded **in the run**, not inferred from where it
+sits.
 
-| | Validated | Ad-hoc |
-|---|---|---|
-| Directory | `trading/runs/` | `trading/runs-adhoc/` |
-| `validated` | `true` | `false` |
-| Versioning | own sequence | own sequence |
-| Citable as Level A | yes | no |
+### Provenance, not location
 
-Ad-hoc runs are versioned in their own sequence, so an exploratory run can
-never become "v9" of a reviewed pattern and inherit its standing.
+A `summary.json` produced by a human designing an experiment and one produced
+by a chat message are byte-identical in structure. Nothing in the artifact says
+which is which. So `backtests.run` writes `provenance.json` alongside it:
 
-`SOUL.md` requires the agent to say a result is freshly computed and
-unreviewed, and to name the fitting problem when asked to sweep parameters
-rather than silently obliging.
+```json
+{
+  "initiated_by": "assistant",
+  "initiated_at": "2026-08-19T23:11:15+00:00",
+  "reviewed": false,
+  "out_of_sample": true,
+  "requested": { "strategy": "day_open", "params": {"stop_pct": 2.5}, ... }
+}
+```
 
-`backtests.run` reports `out_of_sample: true` only when `end` was set —
-otherwise the whole period is in-sample and the number is optimistic.
+`validated` derives from `reviewed` where provenance exists. Setting
+`reviewed: true` promotes a run **without moving any files** — verified. That
+matters because the useful case is real: an ad-hoc run that turns out to be
+worth keeping should be promotable, and a careless run sitting in `runs/`
+should not be blessed by its path.
+
+### The directories
+
+`trading/runs/` and `trading/runs-adhoc/` are **organisation, not the
+guarantee**. Two honest reasons to keep them:
+
+- Volume. Seven ad-hoc runs appeared during one afternoon of testing. In
+  `runs/` they would be noise in the asset that matters.
+- Runs made before provenance existed, and anything produced directly by the
+  backtester CLI, have no `provenance.json`. For those the directory is the
+  only signal available, so it remains the fallback.
+
+They are **not** what stops an exploratory run becoming "v9" of a reviewed
+pattern — the `--label adhoc` suffix already gives it a distinct pattern id
+(`DAY_OPEN_XAUUSD_M15_ADHOC`), so version sequences cannot merge regardless.
+An earlier draft of this document claimed otherwise.
+
+Nor was overwriting ever a risk: every run directory carries a timestamp, so
+collision is impossible by construction.
 
 ## Reverting
 

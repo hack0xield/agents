@@ -451,6 +451,26 @@ def backtests_run(
         if "Saved to" in line:
             run_id = line.split("runs-adhoc/")[-1].strip()
 
+    # Provenance belongs in the run, not in its file path. summary.json is
+    # byte-identical whether a human designed the run or a chat message
+    # triggered it, so without this there is nothing in the artifact that says
+    # which — only where it happens to sit.
+    if run_id:
+        try:
+            (runs.ADHOC_DIR / run_id / "provenance.json").write_text(json.dumps({
+                "initiated_by": "assistant",
+                "initiated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "reviewed": False,
+                "out_of_sample": bool(end),
+                "requested": {
+                    "strategy": strategy, "symbol": symbol, "timeframe": timeframe,
+                    "params": params or {}, "start": start, "end": end,
+                    "intrabar": intrabar,
+                },
+            }, indent=2) + "\n")
+        except OSError:
+            pass
+
     return {
         "ok": True,
         "validated": False,
