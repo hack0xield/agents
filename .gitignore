@@ -4,6 +4,8 @@
 !.env.example
 *.pem
 *.key
+# raw BotFather / API-key dump
+notes.txt
 
 # Node
 node_modules/
