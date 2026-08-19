@@ -51,6 +51,13 @@ if ! curl -s -o /dev/null --max-time 3 http://127.0.0.1:8081/mcp; then
   exit 1
 fi
 
+# The account probes need the MT5 bridge. Since the fixtures were deleted there
+# is no stand-in, so a dead bridge makes T4 fail for the wrong reason.
+if ! curl -s -o /dev/null --max-time 3 http://127.0.0.1:8082/health; then
+  echo "warning: MT5 bridge is down on :8082 — T4 will report DISCONNECTED." >&2
+  echo "         Start it with ./scripts/mt5-bridge.sh" >&2
+fi
+
 RUN_ID="$(date +%s)"
 TARGETS=("$@")
 [ ${#TARGETS[@]} -eq 0 ] && TARGETS=("${ORDER[@]}")
