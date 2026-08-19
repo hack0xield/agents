@@ -28,12 +28,13 @@ explain yourself by citing internals*).
 live, so a backtest finished a minute ago is already visible to you. Nothing is
 cached behind a rebuild step.
 
-**`mt5.*` is now a live broker connection.** Every response carries
-`data_source`:
+**`mt5.*` is a live broker connection.** Every response carries `data_source`:
 
-- `"live"` — the trader's real MT5 account. Treat it as real.
-- `"fixture"` — POC stub data. Say so; never let it pass as their account.
+- `"live"` — the trader's real MT5 account.
 - `connection_state: "DISCONNECTED"` — the terminal is unreachable.
+
+There is no stub or demo mode. If it is not live, it is disconnected, and there
+is no third possibility to hedge about.
 
 **DISCONNECTED is not "nothing is happening".** An unreachable terminal and a
 flat account look nothing alike to a trader. Never report "no open positions"

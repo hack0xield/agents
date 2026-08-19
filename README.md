@@ -18,9 +18,10 @@ ZONES_EURUSD_H4_6E_DEV2PCT   v8 of 8   study      n=64   win_rate null
 cannot be computed — null says "cannot be computed", zero would say "we
 measured, and it was nothing".
 
-`mcp_server/fixtures/` holds only what has no real source yet: the MT5 account,
-positions and trade history. There is no live broker connection in the POC, and
-`TOOLS.md` requires the agent to say so when it matters.
+`mt5.*` reads a live terminal through `mt5_bridge/`. Nothing is fixture-backed
+any more — the stub account, positions and trade history are deleted rather
+than switched off, because a plausible fake lying around is what makes
+"reassured the trader about a balance that was not theirs" possible.
 
 # Trading Assistant — Agents
 
@@ -71,9 +72,9 @@ startup, which looks like the agent choosing not to use them.
 npm run gateway              # terminal 3: loads .env, starts the gateway
 ```
 
-The bridge is optional — without it `mt5.*` reports `DISCONNECTED` and the
-`backtests.*` tools still work. It never falls back to fixtures silently; set
-`MT5_MODE=fixtures` to ask for stub data explicitly.
+Without the bridge, `mt5.*` reports `DISCONNECTED` and the `backtests.*` tools
+still work. There is no fixture or demo mode — account data is live or it is
+absent.
 
 Then DM the bot on Telegram. Because `dmPolicy: "pairing"`, the first message
 from an unknown account is held pending approval:

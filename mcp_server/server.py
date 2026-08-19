@@ -5,9 +5,9 @@ new backtest is visible to the assistant the moment it finishes. It previously
 served a generated snapshot, which went stale the moment anything was re-run —
 wrong for a system whose whole claim is knowing what has been tested.
 
-`mt5.*` is still fixture-backed. There is no live MT5 connection in the POC and
-nothing in runs/ describes an account, so that data has nowhere real to come
-from yet. It is stub data and TOOLS.md requires the agent to say so.
+`mt5.*` reads a live MT5 terminal through mt5_bridge/ — a read-only facade that
+imports no trading function at all. There is no fixture fallback: an
+unreachable terminal reports DISCONNECTED rather than serving a plausible fake.
 
 Two guarantees this module exists to enforce, both from spec §10:
 
@@ -27,14 +27,12 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 import mt5_live
 import runs
 from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
-FIXTURES = Path(__file__).resolve().parent / "fixtures"
 CALL_LOG = Path(__file__).resolve().parent / "tool-calls.jsonl"
 
 
@@ -101,10 +99,6 @@ mcp = MCPServer("trading")
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False)
 
 
-def _load(name: str) -> Any:
-    return json.loads((FIXTURES / name).read_text())
-
-
 def _series_for(run_id: str) -> list[str]:
     """Which series exist for a run. Names only — the rows themselves are read
     on demand, since one equity curve is 100k rows."""
@@ -121,9 +115,10 @@ def mt5_get_account() -> dict:
     """Current state of the connected MT5 account: balance, equity, margin,
     open position count and connection health. Read-only.
 
-    Check `data_source`: "live" is the trader's real account, "fixture" is POC
-    stub data, and `connection_state: DISCONNECTED` means the terminal is not
-    reachable — report that rather than treating it as an empty account.
+    `data_source` is "live" when the terminal answered. A payload with
+    `connection_state: DISCONNECTED` means the terminal is unreachable —
+    report that, rather than treating it as an empty account. There is no stub
+    or demo mode; account data is live or it is absent.
 
     If `access` is "MASTER_TRADING_ENABLED" the account was connected with a
     trading-capable password instead of an investor one. Say so plainly: it is
@@ -166,8 +161,8 @@ def mt5_get_trade_history(limit: int = 20, symbol: str | None = None,
 @mcp.tool(name="mt5.get_connection_status", annotations=READ_ONLY)
 @_traced("mt5.get_connection_status")
 def mt5_get_connection_status() -> dict:
-    """Whether the MT5 terminal is reachable, and whether account data is live
-    or fixture-backed. Use this when a data call reports DISCONNECTED."""
+    """Whether the MT5 terminal is reachable. Use this when a data call comes
+    back DISCONNECTED, to tell a dropped connection from a quiet account."""
     return mt5_live.status()
 
 

@@ -169,14 +169,12 @@ It calls exactly three MT5 functions — `account_info`, `positions_get`,
 `history_deals_get`. No trading entry point is imported anywhere in the file, so
 no configuration can reach one.
 
-`mcp_server/mt5_live.py` is the Linux-side client. Two modes via `MT5_MODE`:
-`live` (default) and `fixtures`. **There is no silent fallback between them.**
-Quietly serving stub data for a real account is the worst failure available
-here — a trader told about positions they do not hold, or reassured about a
-balance that is not theirs. Every payload carries `data_source`, and an
-unreachable bridge returns `connection_state: DISCONNECTED` rather than an
-empty list, because "no positions" and "cannot see your account" are different
-sentences.
+`mcp_server/mt5_live.py` is the Linux-side client. **Live only — the fixtures
+are deleted, not disabled.** Quietly serving stub data for a real account is
+the worst failure available here, and keeping a plausible fake in the tree is
+what makes it reachable. An unreachable bridge returns
+`connection_state: DISCONNECTED` rather than an empty list, because "no
+positions" and "cannot see your account" are different sentences.
 
 Trade history is reconstructed from deals: MT5 records an entry deal and an
 exit deal sharing a `position_id`, so they are paired into one row per
