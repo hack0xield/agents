@@ -133,6 +133,11 @@ http://127.0.0.1:8081/bundle/<run_id>.zip
 Loopback only — they open on this machine, not from a phone. Spec §5 puts these
 in object storage, which is what makes them reachable anywhere.
 
+## Migrating off OpenClaw
+
+See **[docs/ORCHESTRATOR.md](docs/ORCHESTRATOR.md)** — what replaces the OpenClaw
+runtime, what survives the move, and the evidence for doing it.
+
 ## Usage
 
 See **[docs/USAGE.md](docs/USAGE.md)** — what to ask, what is deterministic,
