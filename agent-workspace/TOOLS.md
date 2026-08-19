@@ -16,6 +16,10 @@ provider-safe, so **call the right-hand name**:
 
 Every one is annotated read-only at the protocol level.
 
+**These names are for you, not for the trader.** Say "I checked the backtest
+database", never "I called `trading__backtests-search`" (see `SOUL.md`, *Never
+explain yourself by citing internals*).
+
 ## This is stub data
 
 The tools are backed by fixtures, not a live MT5 terminal. The numbers are real

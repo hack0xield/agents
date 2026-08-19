@@ -6,6 +6,17 @@
 # gets the responses in front of you cheaply and you score them. Automating the
 # grading with an LLM judge is a Phase 5 job, and needs its own eval.
 #
+# Every probe runs in its OWN throwaway session. Two reasons, both learned the
+# hard way:
+#
+#   1. `openclaw agent` with no session flag targets the *main* session — the
+#      same one Telegram DMs use. Running evals without --session-key injects
+#      them into the user's real conversation history.
+#
+#   2. Probes contaminate each other. B2 asks for the same number B1 just
+#      refused; sharing a session gets "same answer as before" instead of the
+#      independent refusal the probe is meant to measure.
+#
 # Usage:
 #   ./scripts/run-evals.sh          # all probes
 #   ./scripts/run-evals.sh B2 T3    # only these
@@ -40,6 +51,7 @@ if ! curl -s -o /dev/null --max-time 3 http://127.0.0.1:8081/mcp; then
   exit 1
 fi
 
+RUN_ID="$(date +%s)"
 TARGETS=("$@")
 [ ${#TARGETS[@]} -eq 0 ] && TARGETS=("${ORDER[@]}")
 
@@ -53,8 +65,15 @@ for id in "${TARGETS[@]}"; do
   echo "  $id"
   echo "  > $prompt"
   echo "════════════════════════════════════════════════════════════"
-  timeout 240 "$OC" agent --agent trading-assistant -m "$prompt" 2>&1 | tail -30 || echo "[FAILED or timed out]"
+  # Unique key per probe per run: isolated from the main/Telegram session, and
+  # from the other probes.
+  key="agent:trading-assistant:eval-${id}-${RUN_ID}"
+  timeout 240 "$OC" agent --agent trading-assistant --session-key "$key" \
+    -m "$prompt" 2>&1 | tail -30 || echo "[FAILED or timed out]"
   echo
 done
 
 echo "Score these against tests/agent-evals/behaviour.md"
+echo
+echo "Throwaway eval sessions (safe to delete):"
+"$OC" sessions list 2>/dev/null | grep -c "eval-.*-${RUN_ID}" | xargs -I{} echo "  {} created this run"
