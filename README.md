@@ -74,3 +74,26 @@ Verified against OpenClaw **2026.7.1-2** with `openclaw config schema`:
   before the bot is reachable, not after.
 - `memorySearch` is off: it defaults to an OpenAI embedding provider we have no
   key for and do not want as a dependency.
+- `gateway.mode` must be set. Without it the gateway refuses to start, treating
+  the config as possibly clobbered.
+- `agents.defaults.model` is pinned as well as the per-agent model. Without the
+  defaults-level pin the runtime resolves to `openai/gpt-5.5`.
+
+### Config ownership
+
+`~/.openclaw/openclaw.json` is **not** a copy of the versioned file. OpenClaw
+writes to it at runtime — approving a Telegram pairing adds
+`commands.ownerAllowFrom`, for instance — and it stores plain JSON, so comments
+are stripped.
+
+`install-config.sh` therefore uses `openclaw config patch`, which merges, rather
+than `cp`, which would wipe that state. Our file owns the keys it declares;
+everything else is left alone. Edit `openclaw/openclaw.json5` and re-run the
+script; never hand-edit the live file.
+
+### Gateway auth
+
+The gateway binds to `127.0.0.1:18789`. `gateway.auth.token` protects
+non-loopback clients only — OpenClaw auto-approves device pairing for loopback
+connects, so any process running as this user can drive the gateway. This
+machine is the trust boundary until `bind` stops being `loopback`.
