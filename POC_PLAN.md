@@ -195,6 +195,11 @@ returns nothing and the assistant says so plainly.
 
 **Gate:** tests green, eval set passing, one recorded end-to-end demo.
 
+**Blocker to clear first:** the agent currently runs on the founder's personal
+Claude subscription via the `claude-cli` provider (see README). Cost logging is
+meaningless until it moves back to `anthropic/*` with API credits, so buy
+credits and flip the provider prefix before starting this phase.
+
 ---
 
 ## Optional stretch — outbound proof (§30)

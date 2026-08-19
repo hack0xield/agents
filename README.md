@@ -62,6 +62,29 @@ scripts/gateway.sh        loads .env, starts the gateway
 scripts/oc                openclaw CLI wrapper with .env + Node 24 loaded
 ```
 
+## ⚠️ Running on a personal Claude subscription (temporary)
+
+As of 2026-08-19 the agent runs through the `claude-cli` provider, which shells
+out to the locally authenticated Claude Code CLI, because the Anthropic API key
+has a zero credit balance. The key authenticates but every billable call is
+rejected — verified against both Sonnet 5 and Haiku 4.5, so it is an
+account-level balance, not a model-tier limit.
+
+This unblocks Phases 2–4. It is **not** a production path: a personal
+subscription does not license serving other users, there is no per-user token
+accounting (spec.txt §52), and it depends on a binary inside a Cursor extension
+directory.
+
+```bash
+./scripts/link-claude-cli.sh   # re-run after a Cursor update
+```
+
+To swap back: buy API credits, change the two `claude-cli/claude-sonnet-5`
+lines in `openclaw/openclaw.json5` to `anthropic/claude-sonnet-5`, re-run
+`./scripts/install-config.sh`. Nothing else depends on the choice.
+
+Must be resolved before Phase 5 or before any non-founder user connects.
+
 ## Config notes
 
 Verified against OpenClaw **2026.7.1-2** with `openclaw config schema`:

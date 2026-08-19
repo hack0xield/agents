@@ -43,12 +43,46 @@
   },
 
   agents: {
-    // Pinned at the defaults level as well as per-agent. Without this the
-    // runtime falls back to a built-in default (openai/gpt-5.5), which we have
-    // no key for and which contradicts spec.txt §8 — Sonnet is the normal
-    // brain. Any agent added later inherits Sonnet rather than OpenAI.
+    // ─────────────────────────────────────────────────────────────────────
+    // TEMPORARY: running on the founder's personal Claude subscription.
+    //
+    // 2026-08-19. The Anthropic API key authenticates (HTTP 200 on
+    // /v1/models) but has a zero credit balance, so every /v1/messages call
+    // is rejected — confirmed by curl against Sonnet 5 AND Haiku 4.5, so it
+    // is an account-level balance, not a model-tier limit. There is no free
+    // allowance on the API.
+    //
+    // Rather than block the POC on a purchase, the agent runs through the
+    // `claude-cli` provider, which shells out to the locally authenticated
+    // Claude Code CLI and bills against the founder's own subscription.
+    //
+    // THIS IS NOT A PRODUCTION PATH. It is viable only while the founder is
+    // the sole user:
+    //   - a personal subscription is not a licence to serve other people;
+    //   - there is no per-user token accounting, so spec.txt §52's
+    //     "LLM cost per paying user" cannot be measured;
+    //   - it depends on a CLI binary inside a Cursor extension directory
+    //     (see scripts/link-claude-cli.sh), which is not deployable.
+    //
+    // TO SWAP BACK — buy API credits, then change the two model lines below
+    // from `claude-cli/claude-sonnet-5` to `anthropic/claude-sonnet-5` and
+    // re-run scripts/install-config.sh. Nothing else depends on this choice;
+    // that is why the provider prefix is the only thing that changes.
+    //
+    // This must be resolved before Phase 5 (cost logging) and before anyone
+    // other than the founder is connected, whichever comes first.
+    // ─────────────────────────────────────────────────────────────────────
     defaults: {
-      model: "anthropic/claude-sonnet-5",
+      model: "claude-cli/claude-sonnet-5",
+
+      // The only claude binary here lives inside the Cursor extension, at a
+      // versioned path that changes on every update. scripts/link-claude-cli.sh
+      // re-resolves it and symlinks ~/.local/bin/claude, so this stays "claude".
+      cliBackends: {
+        "claude-cli": {
+          command: "claude",
+        },
+      },
     },
 
     list: [
@@ -64,8 +98,10 @@
         },
 
         // spec.txt §8: Sonnet is the normal brain; the expensive model is the
-        // exception, not the default. Id verified against `openclaw models list`.
-        model: "anthropic/claude-sonnet-5",
+        // exception, not the default. Provider prefix is claude-cli rather than
+        // anthropic only because of the credit-balance situation documented
+        // above — the model itself is unchanged.
+        model: "claude-cli/claude-sonnet-5",
 
         // spec.txt §49: the assistant must not run shell commands, touch the
         // filesystem, or browse arbitrary URLs. OpenClaw ships these enabled,
