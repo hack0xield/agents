@@ -163,13 +163,16 @@ def backtests_get_report(pattern_id: str, version: int | None = None) -> dict:
                 "artifacts": {
                     "chart_url": f"http://{HOST}:{PORT}/artifacts/{run_id}/chart.html",
                     "summary_url": f"http://{HOST}:{PORT}/artifacts/{run_id}/summary.json",
+                    "bundle_url": f"http://{HOST}:{PORT}/bundle/{run_id}.zip",
                 },
                 "artifact_note": (
-                    "These URLs are served from the machine running this "
-                    "assistant. They open in a browser on that machine; they "
-                    "are not reachable from a phone or another host. Offer the "
-                    "link to a user on the same machine — otherwise summarise "
-                    "the data instead, or use backtests.get_series."
+                    "bundle_url is a zip of every file in the run — charts, "
+                    "summary and all CSVs. Offer it when someone asks for the "
+                    "files themselves. These URLs are served from the machine "
+                    "running this assistant: they open in a browser there, and "
+                    "are not reachable from a phone or another host. You cannot "
+                    "attach or send files, so hand over the link and say where "
+                    "it works — never imply you attached anything."
                 ),
                 "available_series": _series_for(run_id),
                 "limitations": r.get("limitations", []),
@@ -243,7 +246,12 @@ def backtests_get_series(
 
 
 if __name__ == "__main__":
+    import io
+    import zipfile
+
     import uvicorn
+    from starlette.responses import PlainTextResponse, Response
+    from starlette.routing import Route
     from starlette.staticfiles import StaticFiles
 
     # Serve the stored report artifacts (charts, summaries) alongside the tool
@@ -252,8 +260,39 @@ if __name__ == "__main__":
     # stand-in for that, and deliberately loopback-only.
     app = mcp.streamable_http_app()
     runs = Path(__file__).resolve().parent.parent.parent / "trading" / "runs"
+
     if runs.is_dir():
         app.mount("/artifacts", StaticFiles(directory=runs), name="artifacts")
+
+        async def bundle(request):
+            """Zip a whole run directory on request.
+
+            Built in memory and thrown away: these are small, and a cache is a
+            staleness bug waiting to happen when a run is regenerated.
+            """
+            run_id = request.path_params["run_id"]
+            # The run id comes from a URL. Resolve it and confirm it stays
+            # inside runs/ before reading anything — otherwise ".." walks the
+            # filesystem, and this process can read the user's home.
+            target = (runs / run_id).resolve()
+            if not target.is_dir() or runs.resolve() not in target.parents:
+                return PlainTextResponse("no such run", status_code=404)
+
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+                for f in sorted(target.iterdir()):
+                    if f.is_file():
+                        z.write(f, arcname=f"{run_id}/{f.name}")
+            buf.seek(0)
+            return Response(
+                buf.getvalue(),
+                media_type="application/zip",
+                headers={
+                    "content-disposition": f'attachment; filename="{run_id}.zip"'
+                },
+            )
+
+        app.router.routes.append(Route("/bundle/{run_id}.zip", bundle))
     else:
         print(f"warning: {runs} not found — artifact URLs will 404")
 

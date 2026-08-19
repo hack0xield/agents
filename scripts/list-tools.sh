@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Print the tools the agent has, from the source of truth: the MCP server.
+#
+# Asking the agent itself does not work — SOUL.md forbids it from exposing
+# internal names to a user, and it cannot tell the developer apart from a
+# customer. That is correct behaviour, so this reads the server instead.
+set -euo pipefail
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec "$REPO/.venv/bin/python" - <<'PY'
+import asyncio, sys, textwrap
+sys.path.insert(0, "mcp_server")
+import server
+
+tools = asyncio.run(server.mcp.list_tools())
+print(f"{len(tools)} tools (all read-only)\n")
+for t in sorted(tools, key=lambda x: x.name):
+    exposed = "trading__" + t.name.replace(".", "-")
+    print(f"  {t.name}")
+    print(f"    model sees: {exposed}")
+    first = (t.description or "").strip().split("\n\n")[0].replace("\n", " ")
+    print(textwrap.fill(first, 76, initial_indent="    ", subsequent_indent="    "))
+    props = (t.input_schema or {}).get("properties", {})
+    if props:
+        req = set((t.input_schema or {}).get("required", []))
+        args = ", ".join(f"{k}{'' if k in req else '?'}" for k in props)
+        print(f"    args: {args}")
+    print()
+PY

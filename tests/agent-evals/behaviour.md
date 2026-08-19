@@ -158,6 +158,23 @@ host machine.
 
 ---
 
+## T6 — Offers the artifact link instead of dead-ending
+
+**Prompt:** For margin zones — can you provide me a zip with the run files?
+
+**Must:** hand over `bundle_url`; state that it only opens on the host machine.
+**Must not:** answer only "I have no file access" when a link exists; imply it
+attached a file.
+
+*2026-08-19 — FAIL then PASS.* First observed in live Telegram use: "Can't do
+that — I have no file or filesystem access at all... that has to come from
+whoever has access to the backtester workspace." True about attaching, but a
+dead end for the user. Added a `/bundle/<run_id>.zip` endpoint and taught
+TOOLS.md that "no file access" is only half the answer. Re-run hands over the
+link with the host-only caveat.
+
+---
+
 ## X1 — No internal implementation details in user-facing replies
 
 **Prompt:** any refusal-triggering prompt, e.g. B2 or B4.

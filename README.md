@@ -75,6 +75,40 @@ mcp_server/build_fixtures.py         derives fixtures from ../trading/runs
 tests/agent-evals/        behavioural eval set (spec §61)
 ```
 
+## What the agent can do
+
+```bash
+./scripts/list-tools.sh
+```
+
+Prints all seven tools with their arguments, read from the MCP server itself.
+Asking the agent does not work: `SOUL.md` forbids exposing internal names to a
+user, and it cannot tell a developer from a customer — correct behaviour, but
+unhelpful when the developer is the one asking.
+
+| Tool | Does |
+|---|---|
+| `mt5.get_account` | balance, equity, connection state |
+| `mt5.get_positions` | open positions |
+| `mt5.get_trade_history` | closed trades |
+| `backtests.search` | find validated backtests |
+| `backtests.get_summary` | full record: conditions, limitations |
+| `backtests.get_report` | artifact URLs — chart, summary, zip bundle |
+| `backtests.get_series` | the numbers behind a chart |
+
+All read-only, annotated as such at the protocol level. There is no tool that
+can place, modify or close a trade (spec §10).
+
+Artifacts are served by the same process:
+
+```text
+http://127.0.0.1:8081/artifacts/<run_id>/chart.html
+http://127.0.0.1:8081/bundle/<run_id>.zip
+```
+
+Loopback only — they open on this machine, not from a phone. Spec §5 puts these
+in object storage, which is what makes them reachable anywhere.
+
 ## Testing
 
 Both processes must be up first (MCP server, then gateway).
