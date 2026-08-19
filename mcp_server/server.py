@@ -1,9 +1,13 @@
 """Read-only MCP tools for the trading assistant POC.
 
-Stands in for the real MT5 connector and Backtest KB. Every response comes from
-a fixture file derived from actual backtest runs (see build_fixtures.py) — no
-number here was invented, because a fixture that invents statistics would teach
-the agent precisely the habit SOUL.md forbids.
+`backtests.*` reads the backtester's run directory live (see runs.py), so a
+new backtest is visible to the assistant the moment it finishes. It previously
+served a generated snapshot, which went stale the moment anything was re-run —
+wrong for a system whose whole claim is knowing what has been tested.
+
+`mt5.*` is still fixture-backed. There is no live MT5 connection in the POC and
+nothing in runs/ describes an account, so that data has nowhere real to come
+from yet. It is stub data and TOOLS.md requires the agent to say so.
 
 Two guarantees this module exists to enforce, both from spec §10:
 
@@ -25,6 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import runs
 from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
@@ -99,18 +104,10 @@ def _load(name: str) -> Any:
     return json.loads((FIXTURES / name).read_text())
 
 
-def _series_for(run_id: str) -> list[dict]:
-    """Which series exist for a run, without shipping the rows themselves."""
-    return [
-        {
-            "series": v["series"],
-            "description": v["description"],
-            "row_count": v["row_count"],
-            "downsampled": v["downsampled"],
-        }
-        for k, v in _load("series.json").items()
-        if k.startswith(run_id + "::")
-    ]
+def _series_for(run_id: str) -> list[str]:
+    """Which series exist for a run. Names only — the rows themselves are read
+    on demand, since one equity curve is 100k rows."""
+    return runs.series_names(run_id)
 
 
 # ─────────────────────────────── mt5.* ────────────────────────────────────
@@ -160,24 +157,27 @@ def backtests_search(
 ) -> list[dict]:
     """Find validated backtests matching an instrument and/or timeframe.
 
-    Returns an empty list when nothing matches. An empty list means we have no
-    validated evidence for that scenario — it does not mean "estimate it".
+    Returns the newest version of each pattern. Returns an empty list when
+    nothing matches — that means we have no validated evidence for the
+    scenario, and never that it should be estimated.
 
     Args:
         instrument: e.g. "XAUUSD". Case-insensitive.
         timeframe: e.g. "H4", "M15". Case-insensitive.
     """
-    rows = _load("backtests.json")
+    rows = runs.latest_versions()
     if instrument:
-        rows = [r for r in rows if r["instrument"].upper() == instrument.upper()]
+        rows = [r for r in rows if (r["instrument"] or "").upper() == instrument.upper()]
     if timeframe:
-        rows = [r for r in rows if r["timeframe"].upper() == timeframe.upper()]
-    # Search returns identifying fields plus headline metrics only; the full
-    # record costs tokens nobody asked for (spec §41).
+        rows = [r for r in rows if (r["timeframe"] or "").upper() == timeframe.upper()]
+    # Headline fields only. The full record is several KB per pattern and most
+    # questions are answered without it (spec §41).
     return [
         {
             "pattern_id": r["pattern_id"],
             "version": r["version"],
+            "versions_available": runs.version_count(r["pattern_id"]),
+            "kind": r["kind"],
             "instrument": r["instrument"],
             "timeframe": r["timeframe"],
             "sample_size": r["sample_size"],
@@ -197,50 +197,50 @@ def backtests_get_summary(pattern_id: str, version: int | None = None) -> dict:
     """Full stored record for one pattern: metrics, conditions, invalidations,
     execution assumptions and stated limitations.
 
-    Returns {"found": false} if the pattern is not in the database.
+    Omit `version` for the newest. Read `limitations` before relying on any
+    number here. Returns {"found": false} if the pattern is not in the database.
     """
-    for r in _load("backtests.json"):
-        if r["pattern_id"].upper() == pattern_id.upper():
-            if version is None or r["version"] == version:
-                return r
-    return {"found": False, "pattern_id": pattern_id, "version": version}
+    r = runs.find(pattern_id, version)
+    if r is None:
+        return {"found": False, "pattern_id": pattern_id, "version": version}
+    return {**r, "found": True, "versions_available": runs.version_count(r["pattern_id"])}
 
 
 @mcp.tool(name="backtests.get_report", annotations=READ_ONLY)
 @_traced("backtests.get_report")
 def backtests_get_report(pattern_id: str, version: int | None = None) -> dict:
-    """Locate the stored human-readable report for a pattern.
+    """Locate the stored artifacts for a pattern version.
 
-    Retrieves an existing artifact. It never initiates a new backtest (§33).
+    Retrieves what already exists. It never initiates a new backtest (§33).
     """
-    for r in _load("backtests.json"):
-        if r["pattern_id"].upper() == pattern_id.upper():
-            if version is not None and r["version"] != version:
-                continue
-            run_id = r["backtest_run_id"]
-            return {
-                "found": True,
-                "pattern_id": r["pattern_id"],
-                "version": r["version"],
-                "backtest_run_id": run_id,
-                "artifacts": {
-                    "chart_url": f"http://{HOST}:{PORT}/artifacts/{run_id}/chart.html",
-                    "summary_url": f"http://{HOST}:{PORT}/artifacts/{run_id}/summary.json",
-                    "bundle_url": f"http://{HOST}:{PORT}/bundle/{run_id}.zip",
-                },
-                "artifact_note": (
-                    "bundle_url is a zip of every file in the run — charts, "
-                    "summary and all CSVs. Offer it when someone asks for the "
-                    "files themselves. These URLs are served from the machine "
-                    "running this assistant: they open in a browser there, and "
-                    "are not reachable from a phone or another host. You cannot "
-                    "attach or send files, so hand over the link and say where "
-                    "it works — never imply you attached anything."
-                ),
-                "available_series": _series_for(run_id),
-                "limitations": r.get("limitations", []),
-            }
-    return {"found": False, "pattern_id": pattern_id, "version": version}
+    r = runs.find(pattern_id, version)
+    if r is None:
+        return {"found": False, "pattern_id": pattern_id, "version": version}
+    run_id = r["backtest_run_id"]
+    files = sorted(f.name for f in (runs.RUNS_DIR / run_id).iterdir() if f.is_file())
+    return {
+        "found": True,
+        "pattern_id": r["pattern_id"],
+        "version": r["version"],
+        "versions_available": runs.version_count(r["pattern_id"]),
+        "backtest_run_id": run_id,
+        "files": files,
+        "artifacts": {
+            "chart_url": f"http://{HOST}:{PORT}/artifacts/{run_id}/chart.html",
+            "summary_url": f"http://{HOST}:{PORT}/artifacts/{run_id}/summary.json",
+            "bundle_url": f"http://{HOST}:{PORT}/bundle/{run_id}.zip",
+        },
+        "artifact_note": (
+            "bundle_url is a zip of every file in the run. Offer it when someone "
+            "asks for the files themselves. These URLs are served from the "
+            "machine running this assistant: they open in a browser there, and "
+            "are not reachable from a phone or another host. You cannot attach "
+            "or send files, so hand over the link and say where it works — never "
+            "imply you attached anything."
+        ),
+        "available_series": _series_for(run_id),
+        "limitations": r.get("limitations", []),
+    }
 
 
 @mcp.tool(name="backtests.get_series", annotations=READ_ONLY)
@@ -250,6 +250,7 @@ def backtests_get_series(
     series: str,
     limit: int = 50,
     offset: int = 0,
+    version: int | None = None,
 ) -> dict:
     """Underlying data behind a pattern's charts — the numbers a plot is drawn
     from, not the plot image.
@@ -261,44 +262,36 @@ def backtests_get_series(
     than `row_count`, you are looking at a slice.
 
     Args:
-        pattern_id: e.g. "EUR_H4_MARGIN_ZONES".
+        pattern_id: e.g. "ZONES_EURUSD_H4_6E_DEV2PCT".
         series: e.g. "envelopes", "pivots", "crossings", "rollover".
         limit: rows to return, capped at 200 — a model reasoning over hundreds
             of raw rows is expensive and rarely more accurate than reasoning
             over the summary.
         offset: rows to skip, for paging through a longer series.
+        version: pattern version; omit for the newest.
     """
-    record = None
-    for r in _load("backtests.json"):
-        if r["pattern_id"].upper() == pattern_id.upper():
-            record = r
-            break
-    if record is None:
+    r = runs.find(pattern_id, version)
+    if r is None:
         return {"found": False, "pattern_id": pattern_id}
 
-    all_series = _load("series.json")
-    key = f"{record['backtest_run_id']}::{series}"
-    if key not in all_series:
-        available = sorted(
-            k.split("::")[1]
-            for k in all_series
-            if k.startswith(record["backtest_run_id"] + "::")
-        )
+    run_id = r["backtest_run_id"]
+    entry = runs.read_series(run_id, series)
+    if entry is None:
         return {
             "found": False,
-            "pattern_id": record["pattern_id"],
+            "pattern_id": r["pattern_id"],
             "series": series,
-            "available_series": available,
+            "available_series": runs.series_names(run_id),
         }
 
-    entry = all_series[key]
     limit = max(1, min(limit, 200))
     rows = entry["rows"][offset : offset + limit]
     return {
         "found": True,
-        "pattern_id": record["pattern_id"],
+        "pattern_id": r["pattern_id"],
+        "version": r["version"],
+        "backtest_run_id": run_id,
         "series": entry["series"],
-        "description": entry["description"],
         "columns": entry["columns"],
         "row_count": entry["row_count"],
         "source_row_count": entry["source_row_count"],

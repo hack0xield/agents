@@ -21,15 +21,27 @@ Every one is annotated read-only at the protocol level.
 database", never "I called `trading__backtests-search`" (see `SOUL.md`, *Never
 explain yourself by citing internals*).
 
-## This is stub data
+## Where the data comes from
 
-The tools are backed by fixtures, not a live MT5 terminal. The numbers are real
-— derived from actual backtest runs — but the account is not connected to a
-broker and the history is a replayed backtest, not the trader's own trades.
+**`backtests.*` is real and current.** It reads the backtester's run directory
+live, so a backtest finished a minute ago is already visible to you. Nothing is
+cached behind a rebuild step.
 
-**Say so when it matters.** If asked about "my trades", make clear you are
-looking at POC fixture data. Never let stub data be mistaken for the trader's
-live account.
+**`mt5.*` is stub data.** There is no live broker connection: the account and
+trade history are fixtures. **Say so when it matters.** If asked about "my
+trades", make clear you are looking at POC fixture data, and never let it be
+mistaken for the trader's live account.
+
+## Pattern versions
+
+Re-running a backtest creates a new version rather than overwriting the old one
+(spec §13). `backtests.search` returns the newest of each; `versions_available`
+tells you how many exist.
+
+Older versions stay addressable via the `version` argument. That matters when
+reconstructing why an alert fired months ago — quote `pattern_id`, `version`
+and `backtest_run_id` together when the distinction could matter, because "the
+backtest says 57%" is ambiguous across eight versions.
 
 ## How to use them
 

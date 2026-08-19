@@ -1,3 +1,27 @@
+## Data sources
+
+`backtests.*` reads `../trading/runs/` **live** — a new backtest is visible to
+the assistant as soon as it finishes, with no rebuild step. Override the
+location with `TRADING_RUNS_DIR`.
+
+Runs are grouped into patterns by directory name, and re-running the same
+configuration produces a new version rather than overwriting the old one, which
+is the immutability spec §13 asks for. Today that is 10 run directories → 2
+patterns:
+
+```text
+DAY_OPEN_XAUUSD_M15          v2 of 2   strategy   n=252  win_rate 0.579
+ZONES_EURUSD_H4_6E_DEV2PCT   v8 of 8   study      n=64   win_rate null
+```
+
+`win_rate: null` on the study is deliberate. It has no trade list, so an edge
+cannot be computed — null says "cannot be computed", zero would say "we
+measured, and it was nothing".
+
+`mcp_server/fixtures/` holds only what has no real source yet: the MT5 account,
+positions and trade history. There is no live broker connection in the POC, and
+`TOOLS.md` requires the agent to say so when it matters.
+
 # Trading Assistant — Agents
 
 POC of the Telegram AI trading assistant described in [spec.txt](spec.txt).
