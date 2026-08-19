@@ -109,6 +109,11 @@ http://127.0.0.1:8081/bundle/<run_id>.zip
 Loopback only — they open on this machine, not from a phone. Spec §5 puts these
 in object storage, which is what makes them reachable anywhere.
 
+## Usage
+
+See **[docs/USAGE.md](docs/USAGE.md)** — what to ask, what is deterministic,
+how to reset a session, and an audited list of what is and is not locked down.
+
 ## Chat commands
 
 OpenClaw registers its whole operator command set with every channel by default.
