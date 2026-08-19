@@ -26,12 +26,16 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-RUNS_DIR = Path(
-    os.environ.get(
-        "TRADING_RUNS_DIR",
-        Path(__file__).resolve().parent.parent.parent / "trading" / "runs",
-    )
-)
+_TRADING = Path(__file__).resolve().parent.parent.parent / "trading"
+
+# Reviewed, published backtests. These are the proprietary asset (spec §12).
+RUNS_DIR = Path(os.environ.get("TRADING_RUNS_DIR", _TRADING / "runs"))
+
+# Ad-hoc runs the assistant executed on request. Kept in a separate directory
+# so a backtest produced 4 seconds ago to answer a question is never confused
+# with one that was designed, reviewed and published. Every record carries
+# `validated`, and the agent is required to say which it is looking at.
+ADHOC_DIR = Path(os.environ.get("TRADING_ADHOC_RUNS_DIR", _TRADING / "runs-adhoc"))
 
 MAX_SERIES_ROWS = 500
 
@@ -56,15 +60,16 @@ def _day(iso: str | None) -> str | None:
 
 
 def _dir_signature() -> tuple:
-    """Cheap fingerprint of the runs directory, so the index rebuilds when a new
-    backtest lands but not on every single tool call."""
-    if not RUNS_DIR.is_dir():
-        return ()
+    """Cheap fingerprint of both run directories, so the index rebuilds when a
+    new backtest lands but not on every single tool call."""
     out = []
-    for d in sorted(RUNS_DIR.iterdir()):
-        s = d / "summary.json"
-        if s.is_file():
-            out.append((d.name, s.stat().st_mtime_ns))
+    for validated, root in ((True, RUNS_DIR), (False, ADHOC_DIR)):
+        if not root.is_dir():
+            continue
+        for d in sorted(root.iterdir()):
+            s = d / "summary.json"
+            if s.is_file():
+                out.append((d.name, s.stat().st_mtime_ns, validated))
     return tuple(out)
 
 
@@ -178,21 +183,29 @@ def _strategy_limitations(m: dict, ex: dict) -> list[str]:
 
 @lru_cache(maxsize=1)
 def _index(_signature: tuple) -> list[dict]:
-    """All runs, normalized, with versions assigned per pattern by run time."""
-    by_pattern: dict[str, list[str]] = {}
-    for name, _ in _signature:
+    """All runs, normalized, with versions assigned per pattern by run time.
+
+    Validated and ad-hoc runs are versioned independently: an exploratory run
+    must never become "v9" of a reviewed pattern and inherit its standing.
+    """
+    groups: dict[tuple[str, bool], list[str]] = {}
+    for name, _, validated in _signature:
         pid = pattern_id_for(name)
         if pid:
-            by_pattern.setdefault(pid, []).append(name)
+            groups.setdefault((pid, validated), []).append(name)
 
     records = []
-    for pid, names in by_pattern.items():
+    for (pid, validated), names in groups.items():
+        root = RUNS_DIR if validated else ADHOC_DIR
         for version, name in enumerate(sorted(names, key=run_timestamp), start=1):
             try:
-                summary = json.loads((RUNS_DIR / name / "summary.json").read_text())
+                summary = json.loads((root / name / "summary.json").read_text())
             except (OSError, ValueError):
                 continue
-            records.append(_normalize(name, summary, version))
+            rec = _normalize(name, summary, version)
+            rec["validated"] = validated
+            rec["runs_root"] = str(root)
+            records.append(rec)
     return records
 
 
@@ -202,17 +215,23 @@ def all_patterns() -> list[dict]:
 
 def latest_versions() -> list[dict]:
     """Newest version of each pattern — what a search should surface by default,
-    rather than eight near-identical reruns of the same study."""
-    best: dict[str, dict] = {}
+    rather than eight near-identical reruns of the same study.
+
+    Validated and ad-hoc are separate entries, never merged.
+    """
+    best: dict[tuple[str, bool], dict] = {}
     for r in all_patterns():
-        pid = r["pattern_id"]
-        if pid not in best or r["version"] > best[pid]["version"]:
-            best[pid] = r
+        k = (r["pattern_id"], r["validated"])
+        if k not in best or r["version"] > best[k]["version"]:
+            best[k] = r
     return list(best.values())
 
 
-def find(pattern_id: str, version: int | None = None) -> dict | None:
+def find(pattern_id: str, version: int | None = None,
+         validated: bool | None = None) -> dict | None:
     matches = [r for r in all_patterns() if r["pattern_id"].upper() == pattern_id.upper()]
+    if validated is not None:
+        matches = [r for r in matches if r["validated"] is validated]
     if not matches:
         return None
     if version is None:
@@ -223,12 +242,23 @@ def find(pattern_id: str, version: int | None = None) -> dict | None:
     return None
 
 
-def version_count(pattern_id: str) -> int:
-    return len([r for r in all_patterns() if r["pattern_id"].upper() == pattern_id.upper()])
+def version_count(pattern_id: str, validated: bool | None = None) -> int:
+    rows = [r for r in all_patterns() if r["pattern_id"].upper() == pattern_id.upper()]
+    if validated is not None:
+        rows = [r for r in rows if r["validated"] is validated]
+    return len(rows)
+
+
+def run_root_for(run_id: str) -> Path | None:
+    for root in (RUNS_DIR, ADHOC_DIR):
+        if (root / run_id / "summary.json").is_file():
+            return root
+    return None
 
 
 def series_names(run_id: str) -> list[str]:
-    d = RUNS_DIR / run_id
+    root = run_root_for(run_id) or RUNS_DIR
+    d = root / run_id
     if not d.is_dir():
         return []
     return sorted(f.stem for f in d.glob("*.csv"))
@@ -250,7 +280,8 @@ def read_series(run_id: str, name: str) -> dict | None:
     would silently misrepresent its shape, which is worse than saying it is
     abridged.
     """
-    f = RUNS_DIR / run_id / f"{name}.csv"
+    root = run_root_for(run_id) or RUNS_DIR
+    f = root / run_id / f"{name}.csv"
     if not f.is_file():
         return None
     rows = [{k: _coerce(v) for k, v in r.items()} for r in csv.DictReader(f.open())]

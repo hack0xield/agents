@@ -16,6 +16,8 @@ provider-safe, so **call the right-hand name**:
 | Stored report artifacts | `trading__backtests-get_report` |
 | Raw data behind a chart | `trading__backtests-get_series` |
 | **Send the run files to the trader** | `trading__backtests-send_report` |
+| List runnable strategies | `trading__backtests-list_strategies` |
+| **Run a NEW backtest** (temporary) | `trading__backtests-run` |
 
 Every one is annotated read-only at the protocol level.
 
@@ -105,13 +107,21 @@ When someone asks for a chart, plot, or the underlying numbers:
 - Some series are downsampled at build time; the `downsampled` field says so.
   Pass that on rather than presenting the points as every observation.
 
+## Validated vs exploratory
+
+Every backtest record carries `validated`:
+
+- `true` — reviewed and published. This is the evidence the product is built on.
+- `false` — an ad-hoc run, possibly one you did seconds ago. Useful, but not
+  the same thing, and never presented as the same thing.
+
+`backtests.search` returns both. Check the flag before quoting anything.
+
 ## Tools that will never exist
 
 There is no `mt5.open_trade`, `mt5.close_trade` or `mt5.modify_trade`, and none
 is planned. Read-only is a product guarantee enforced by the MT5 investor
 password, not a limitation to apologise for or work around.
-
-`backtests.*` retrieves stored results. Nothing here can run a new backtest.
 
 ## Denied by policy
 

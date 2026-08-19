@@ -25,6 +25,7 @@ from __future__ import annotations
 import functools
 import json
 import os
+import subprocess
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -89,6 +90,10 @@ def _traced(tool: str):
         return wrapper
 
     return deco
+
+_BT_ROOT = Path(__file__).resolve().parent.parent.parent / "trading"
+_BT_PY = _BT_ROOT / ".venv" / "bin" / "python"
+_BT_RUNNER = _BT_ROOT / "scripts" / "run_backtest.py"
 
 HOST = "127.0.0.1"   # never bind wider: these tools expose account data
 PORT = 8081
@@ -343,6 +348,123 @@ def backtests_get_series(
         "offset": offset,
         "returned": len(rows),
         "rows": rows,
+    }
+
+
+# ─────────────────────── backtests.run — TEMPORARY ────────────────────────
+# Spec §33 says the assistant must never initiate a backtest, and §9.2 forbids
+# generating statistics. This tool deliberately breaks both, on an explicit
+# decision recorded in docs/BACKTEST_EXECUTION.md, for the POC only. The spec
+# is unchanged and still describes the intended product.
+#
+# The containment that makes it reversible: ad-hoc runs are written to
+# runs-adhoc/, indexed separately, and every record carries validated:false.
+# A number produced four seconds ago to answer a question never acquires the
+# standing of one that was designed, reviewed and published.
+
+@mcp.tool(
+    name="backtests.list_strategies",
+    annotations=READ_ONLY,
+)
+@_traced("backtests.list_strategies")
+def backtests_list_strategies() -> dict:
+    """Strategies the backtester can run, with their parameters and defaults.
+
+    Call this before backtests.run rather than guessing a parameter name.
+    """
+    proc = subprocess.run(
+        [str(_BT_PY), str(_BT_RUNNER), "--list-strategies"],
+        cwd=str(_BT_ROOT), capture_output=True, text=True, timeout=120,
+    )
+    if proc.returncode != 0:
+        return {"error": "could not list strategies", "detail": proc.stderr[-400:]}
+    return {"strategies": proc.stdout.strip()}
+
+
+@mcp.tool(
+    name="backtests.run",
+    annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False),
+)
+@_traced("backtests.run")
+def backtests_run(
+    strategy: str,
+    symbol: str,
+    timeframe: str,
+    params: dict | None = None,
+    start: str | None = None,
+    end: str | None = None,
+    intrabar: str = "conservative",
+) -> dict:
+    """Run a NEW backtest and return its metrics.
+
+    The result is **exploratory, not validated evidence**. It has had no review
+    and, unless you passed `end`, no out-of-sample split — the whole period is
+    in-sample. Present it as "I just ran this", never alongside the validated
+    patterns as though it carried the same weight, and never as Level A.
+
+    Two things to say out loud when reporting a result:
+
+    - it is unvalidated and freshly computed;
+    - a parameter the trader chose after seeing earlier results is fitted to
+      those results. If they ask you to sweep values until something looks
+      good, say what that does to the number rather than just running it.
+
+    Args:
+        strategy: from backtests.list_strategies, e.g. "day_open", "sma_cross".
+        symbol: e.g. "XAUUSD".
+        timeframe: e.g. "M15", "H4".
+        params: strategy parameters, e.g. {"stop_pct": 2.0}.
+        start: first bar, "YYYY-MM-DD".
+        end: last bar. Setting this is what holds later data out of sample.
+        intrabar: conservative | optimistic | ohlc.
+    """
+    argv = [
+        str(_BT_PY), str(_BT_RUNNER),
+        "--strategy", strategy, "--symbol", symbol, "--timeframe", timeframe,
+        "--intrabar", intrabar,
+        "--save", "--runs-dir", "runs-adhoc", "--label", "adhoc",
+        "--json", "--quiet",
+    ]
+    for k, v in (params or {}).items():
+        argv += ["--param", f"{k}={v}"]
+    if start:
+        argv += ["--start", start]
+    if end:
+        argv += ["--end", end]
+
+    try:
+        proc = subprocess.run(argv, cwd=str(_BT_ROOT), capture_output=True,
+                              text=True, timeout=600)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "backtest timed out after 600s"}
+    if proc.returncode != 0:
+        return {"ok": False, "error": "backtest failed",
+                "detail": (proc.stderr or proc.stdout)[-600:]}
+
+    metrics, run_id = None, None
+    try:
+        text = proc.stdout
+        metrics = json.loads(text[text.index("{"): text.rindex("}") + 1])
+    except (ValueError, json.JSONDecodeError):
+        pass
+    for line in proc.stdout.splitlines():
+        if "Saved to" in line:
+            run_id = line.split("runs-adhoc/")[-1].strip()
+
+    return {
+        "ok": True,
+        "validated": False,
+        "evidence_level": "exploratory — freshly computed, unreviewed",
+        "out_of_sample": bool(end),
+        "run_id": run_id,
+        "pattern_id": runs.pattern_id_for(run_id) if run_id else None,
+        "strategy": strategy, "symbol": symbol, "timeframe": timeframe,
+        "params": params or {},
+        "metrics": metrics,
+        "caveat": (
+            "Not validated evidence. No review, and no out-of-sample split "
+            "unless `end` was set. Report it as a run you just did."
+        ),
     }
 
 

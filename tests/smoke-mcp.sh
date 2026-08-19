@@ -37,6 +37,7 @@ CALLS = [
     # Unknown pattern: exercises send_report's guard without sending a file.
     # Delivering to a real chat on every smoke run would be rude.
     ("backtests.send_report", {"pattern_id": "DOES_NOT_EXIST"}),
+    ("backtests.list_strategies", {}),
 ]
 
 async def main() -> int:
@@ -49,7 +50,8 @@ async def main() -> int:
                         "mt5.get_connection_status",
                         "backtests.search", "backtests.get_summary",
                         "backtests.get_report", "backtests.get_series",
-                        "backtests.send_report"}
+                        "backtests.send_report", "backtests.run",
+                        "backtests.list_strategies"}
             if names != expected:
                 print(f"  FAIL tool list: missing={expected - names} extra={names - expected}")
                 failed += 1

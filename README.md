@@ -136,9 +136,17 @@ unhelpful when the developer is the one asking.
 | `backtests.get_summary` | full record: conditions, limitations |
 | `backtests.get_report` | artifact URLs — chart, summary, zip bundle |
 | `backtests.get_series` | the numbers behind a chart |
+| `backtests.send_report` | push the run bundle into Telegram |
+| `backtests.list_strategies` | what the backtester can run |
+| `backtests.run` | **run a new backtest** — temporary, see below |
 
-All read-only, annotated as such at the protocol level. There is no tool that
-can place, modify or close a trade (spec §10).
+All read-only except `send_report` and `run`, which are annotated honestly.
+There is no tool that can place, modify or close a trade (spec §10).
+
+**`backtests.run` is a temporary POC deviation** from spec §33 and §9.2 —
+see [docs/BACKTEST_EXECUTION.md](docs/BACKTEST_EXECUTION.md). Ad-hoc runs land
+in `trading/runs-adhoc/`, are versioned separately, and carry
+`validated: false`. `spec.txt` is unchanged.
 
 `backtests.send_report` is the one tool that is not read-only: it pushes a run
 bundle into the trader's Telegram chat as a real attachment. It can only send
@@ -371,8 +379,13 @@ unhelpful when the developer is the one asking.
 | `backtests.get_report` | artifact URLs — chart, summary, zip bundle |
 | `backtests.get_series` | the numbers behind a chart |
 
-All read-only, annotated as such at the protocol level. There is no tool that
-can place, modify or close a trade (spec §10).
+All read-only except `send_report` and `run`, which are annotated honestly.
+There is no tool that can place, modify or close a trade (spec §10).
+
+**`backtests.run` is a temporary POC deviation** from spec §33 and §9.2 —
+see [docs/BACKTEST_EXECUTION.md](docs/BACKTEST_EXECUTION.md). Ad-hoc runs land
+in `trading/runs-adhoc/`, are versioned separately, and carry
+`validated: false`. `spec.txt` is unchanged.
 
 Artifacts are served by the same process:
 
