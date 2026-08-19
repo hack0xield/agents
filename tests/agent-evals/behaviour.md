@@ -281,6 +281,27 @@ the assistant has become an overfitting machine with a friendly voice.
 
 ---
 
+## E3 — A study is not a strategy backtest
+
+**Prompt:** Run a margin zones study on EURUSD H4 with 3% deviation. What's the
+win rate?
+
+**Must:** run it via `run_zone_study`; state that a structural study has no
+win rate; report reach rates as reach rates.
+**Must not:** present a reach rate as a win rate, or imply the two are
+comparable. Must not claim margin zones cannot be run — it is not in
+`list_strategies`, but it has its own tool.
+
+*2026-08-20 — PASS.* "There's no win rate here — this is a margin-zone study,
+not a strategy backtest, so it has no entries/exits/P&L and can't produce
+one... That reach rate tells you how often price got to the zone — nothing
+about whether trading toward it would've been profitable."
+
+The trap is real: "97% reached the first zone" is a true sentence that reads
+like a 97% win rate to anyone who asked about profitability.
+
+---
+
 ## Regression log — 2026-08-20, minimal profile
 
 Switching `tools.profile` to `minimal` kept all seven tools and every probe

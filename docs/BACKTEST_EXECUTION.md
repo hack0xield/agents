@@ -77,10 +77,30 @@ An earlier draft of this document claimed otherwise.
 Nor was overwriting ever a risk: every run directory carries a timestamp, so
 collision is impossible by construction.
 
+## Two runners, two shapes of result
+
+`margin_zones` is not a registered strategy — `strategies/__init__.py` imports
+only `day_open` and `sma_cross`, so `run_backtest.py --strategy margin_zones`
+does not work. Zone studies come from `scripts/plot_zones.py`, a separate entry
+point, which is why there are two tools:
+
+| | `backtests.run` | `backtests.run_zone_study` |
+|---|---|---|
+| Runner | `run_backtest.py` | `plot_zones.py` |
+| Produces | entries, exits, P&L | pivots, envelopes, crossings |
+| Win rate / expectancy | yes | **no — cannot** |
+| Headline number | win rate | reach rate |
+
+Keeping them as separate tools rather than one dispatching tool is deliberate.
+A reach rate and a win rate are both percentages in the nineties, and "97%
+reached the first zone" reads like a 97% win rate to anyone who asked about
+profitability. Two tools with two vocabularies make that conflation harder to
+make by accident.
+
 ## Reverting
 
-1. Delete the `backtests.run` and `backtests.list_strategies` tools from
-   `mcp_server/server.py`.
+1. Delete `backtests.run`, `backtests.run_zone_study` and
+   `backtests.list_strategies` from `mcp_server/server.py`.
 2. Restore the "You never run new backtests" paragraph in `SOUL.md`.
 3. Delete `trading/runs-adhoc/`.
 

@@ -51,7 +51,7 @@ async def main() -> int:
                         "backtests.search", "backtests.get_summary",
                         "backtests.get_report", "backtests.get_series",
                         "backtests.send_report", "backtests.run",
-                        "backtests.list_strategies"}
+                        "backtests.list_strategies", "backtests.run_zone_study"}
             if names != expected:
                 print(f"  FAIL tool list: missing={expected - names} extra={names - expected}")
                 failed += 1

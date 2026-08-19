@@ -138,7 +138,8 @@ unhelpful when the developer is the one asking.
 | `backtests.get_series` | the numbers behind a chart |
 | `backtests.send_report` | push the run bundle into Telegram |
 | `backtests.list_strategies` | what the backtester can run |
-| `backtests.run` | **run a new backtest** — temporary, see below |
+| `backtests.run` | **run a new strategy backtest** — temporary |
+| `backtests.run_zone_study` | **run a new margin-zone study** — temporary |
 
 All read-only except `send_report` and `run`, which are annotated honestly.
 There is no tool that can place, modify or close a trade (spec §10).

@@ -489,6 +489,105 @@ def backtests_run(
 
 
 @mcp.tool(
+    name="backtests.run_zone_study",
+    annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False),
+)
+@_traced("backtests.run_zone_study")
+def backtests_run_zone_study(
+    symbol: str,
+    timeframe: str = "H4",
+    contract: str | None = None,
+    deviation_pct: float = 2.0,
+    initial_ratio: float = 1.1,
+    start: str | None = None,
+    end: str | None = None,
+) -> dict:
+    """Run a NEW margin-zone study — ZigZag pivots, margin envelopes, rollover
+    crossings.
+
+    This is a **different kind of run from backtests.run**, and the difference
+    matters when you report it. A zone study has no entries, no exits and no
+    P&L: it measures how often price reached a level, not whether trading
+    toward it made money. It therefore has no win rate and no expectancy, and
+    you must not describe reach rates as though they were either.
+
+    Like backtests.run, the output is exploratory and unreviewed.
+
+    Args:
+        symbol: e.g. "EURUSD".
+        timeframe: bar size for the pivots, e.g. "H4".
+        contract: CME contract supplying the margin, e.g. "6E". Required for
+            the margin envelopes; without it only pivots are meaningful.
+        deviation_pct: ZigZag reversal threshold as a percentage of price.
+        initial_ratio: initial margin ratio for the first zone.
+        start: first bar, "YYYY-MM-DD".
+        end: last bar.
+    """
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    tag = f"zones_{symbol}_{timeframe}" + (f"_{contract}" if contract else "")
+    run_id = f"{stamp}_{tag}_dev{deviation_pct}pct_adhoc".replace(".", "")
+    out = runs.ADHOC_DIR / run_id
+
+    argv = [str(_BT_PY), str(_BT_ROOT / "scripts" / "plot_zones.py"),
+            "--symbol", symbol, "--timeframe", timeframe,
+            "--deviation-pct", str(deviation_pct),
+            "--initial-ratio", str(initial_ratio),
+            "--save", "--out", str(out)]
+    if contract:
+        argv += ["--contract", contract]
+    if start:
+        argv += ["--start", start]
+    if end:
+        argv += ["--end", end]
+
+    try:
+        proc = subprocess.run(argv, cwd=str(_BT_ROOT), capture_output=True,
+                              text=True, timeout=900)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "zone study timed out after 900s"}
+    if proc.returncode != 0:
+        return {"ok": False, "error": "zone study failed",
+                "detail": (proc.stderr or proc.stdout)[-600:]}
+
+    summary = None
+    try:
+        summary = json.loads((out / "summary.json").read_text())
+    except (OSError, ValueError):
+        pass
+
+    try:
+        (out / "provenance.json").write_text(json.dumps({
+            "initiated_by": "assistant",
+            "initiated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "reviewed": False,
+            "out_of_sample": bool(end),
+            "requested": {
+                "kind": "zone_study", "symbol": symbol, "timeframe": timeframe,
+                "contract": contract, "deviation_pct": deviation_pct,
+                "initial_ratio": initial_ratio, "start": start, "end": end,
+            },
+        }, indent=2) + "\n")
+    except OSError:
+        pass
+
+    return {
+        "ok": True,
+        "kind": "study",
+        "validated": False,
+        "evidence_level": "exploratory — freshly computed, unreviewed",
+        "run_id": run_id,
+        "pattern_id": runs.pattern_id_for(run_id),
+        "summary": summary,
+        "caveat": (
+            "A structural study: no entries, exits or P&L. Reach rates are not "
+            "win rates and say nothing about whether trading toward these "
+            "zones was profitable. Unreviewed."
+        ),
+        "console": proc.stdout.strip()[-800:],
+    }
+
+
+@mcp.tool(
     name="backtests.send_report",
     annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False),
 )

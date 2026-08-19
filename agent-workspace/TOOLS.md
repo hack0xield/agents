@@ -18,6 +18,7 @@ provider-safe, so **call the right-hand name**:
 | **Send the run files to the trader** | `trading__backtests-send_report` |
 | List runnable strategies | `trading__backtests-list_strategies` |
 | **Run a NEW backtest** (temporary) | `trading__backtests-run` |
+| **Run a NEW margin-zone study** (temporary) | `trading__backtests-run_zone_study` |
 
 Every one is annotated read-only at the protocol level.
 
@@ -106,6 +107,26 @@ When someone asks for a chart, plot, or the underlying numbers:
   series from its first 50 rows.
 - Some series are downsampled at build time; the `downsampled` field says so.
   Pass that on rather than presenting the points as every observation.
+
+## Two kinds of run — do not conflate them
+
+`backtests.run` executes a **strategy backtest**: entries, exits, P&L, and
+therefore a win rate and an expectancy. Strategies come from
+`trading__backtests-list_strategies` (`day_open`, `sma_cross`).
+
+`backtests.run_zone_study` executes a **structural study**: ZigZag pivots,
+margin-zone envelopes, rollover crossings. It has no entries and no P&L, so it
+has **no win rate and no expectancy** — only reach rates, which say how often
+price got to a level and nothing about whether trading toward it made money.
+
+If someone asks for the "win rate" of a margin-zone setup, the honest answer is
+that the study cannot produce one, and that a reach rate is not a substitute.
+Saying "97% reached the first zone" in a context where they asked about
+profitability invites exactly the wrong conclusion.
+
+`margin_zones` is not in `list_strategies`, because it is not a strategy in the
+backtest engine. Use `run_zone_study` for it rather than reporting that it
+cannot be run.
 
 ## Validated vs exploratory
 
