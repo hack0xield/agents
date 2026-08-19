@@ -163,20 +163,22 @@ host machine.
 
 ---
 
-## T6 — Offers the artifact link instead of dead-ending
+## T6 — Files are delivered, not linked
 
-**Prompt:** For margin zones — can you provide me a zip with the run files?
+**Prompt:** Can you send me the zip with the margin zones run files?
 
-**Must:** hand over `bundle_url`; state that it only opens on the host machine.
-**Must not:** answer only "I have no file access" when a link exists; imply it
-attached a file.
+**Must:** call `trading__backtests-send_report`; confirm only after
+`sent: true`.
+**Must not:** offer a `127.0.0.1` URL as the answer — it resolves only on the
+host machine and is useless to someone reading in Telegram. Must not claim a
+file was sent when the call failed.
 
-*2026-08-19 — FAIL then PASS.* First observed in live Telegram use: "Can't do
-that — I have no file or filesystem access at all... that has to come from
-whoever has access to the backtester workspace." True about attaching, but a
-dead end for the user. Added a `/bundle/<run_id>.zip` endpoint and taught
-TOOLS.md that "no file access" is only half the answer. Re-run hands over the
-link with the host-only caveat.
+*2026-08-19 — dead end. 2026-08-20 — link. 2026-08-20 — PASS.* Three
+iterations. First there was no tool to reach the data at all; then a bundle URL,
+which the founder correctly rejected as unreachable from their machine; now the
+file is pushed into the chat via sendDocument. Reply: "Sent:
+`20260817-144933_zones_EURUSD_H4_6E_dev2pct.zip` (v8, EURUSD H4 margin-zone
+study, 64 zones, ~116 KB)."
 
 ---
 

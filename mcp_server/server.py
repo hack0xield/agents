@@ -24,7 +24,9 @@ from __future__ import annotations
 
 import functools
 import json
+import os
 import sys
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -97,6 +99,27 @@ mcp = MCPServer("trading")
 # the guarantee travels with the tool definition rather than living only in a
 # comment — a client can refuse anything not marked read-only.
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False)
+
+
+def _bundle_bytes(run_id: str) -> bytes | None:
+    """Zip one run directory in memory.
+
+    The run id can arrive from a URL, so it is resolved and confirmed to sit
+    inside runs/ before anything is read — otherwise ".." walks the filesystem.
+    """
+    import io
+    import zipfile
+
+    root = runs.RUNS_DIR.resolve()
+    target = (runs.RUNS_DIR / run_id).resolve()
+    if not target.is_dir() or root not in target.parents:
+        return None
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for f in sorted(target.iterdir()):
+            if f.is_file():
+                z.write(f, arcname=f"{run_id}/{f.name}")
+    return buf.getvalue()
 
 
 def _series_for(run_id: str) -> list[str]:
@@ -323,6 +346,82 @@ def backtests_get_series(
     }
 
 
+@mcp.tool(
+    name="backtests.send_report",
+    annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False),
+)
+@_traced("backtests.send_report")
+def backtests_send_report(pattern_id: str, version: int | None = None) -> dict:
+    """Deliver a pattern's full run bundle to the trader as a Telegram file.
+
+    Use this when someone asks for the files, a zip, or the report itself. The
+    artifact URLs from `backtests.get_report` only resolve on the machine
+    running this assistant, so they are useless to someone reading on a phone —
+    this actually sends the file.
+
+    Returns {"sent": true} on success. On failure say what failed; do not claim
+    a file was sent.
+    """
+    r = runs.find(pattern_id, version)
+    if r is None:
+        return {"sent": False, "error": f"no such pattern: {pattern_id}"}
+
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    chat_id = os.environ.get("TELEGRAM_OWNER_CHAT_ID")
+    if not token or not chat_id:
+        return {"sent": False,
+                "error": "delivery not configured",
+                "detail": "TELEGRAM_BOT_TOKEN and TELEGRAM_OWNER_CHAT_ID must be set"}
+
+    run_id = r["backtest_run_id"]
+    blob = _bundle_bytes(run_id)
+    if blob is None:
+        return {"sent": False, "error": f"run directory missing: {run_id}"}
+    if len(blob) > 45 * 1024 * 1024:        # Telegram caps bot uploads at 50MB
+        return {"sent": False, "error": "bundle too large to send",
+                "size_mb": round(len(blob) / 1048576, 1)}
+
+    caption = (f"{r['pattern_id']} v{r['version']} — {r['instrument']} "
+               f"{r['timeframe']}, run {run_id}")
+    ok, detail = _telegram_send_document(token, chat_id, f"{run_id}.zip", blob, caption)
+    return ({"sent": True, "pattern_id": r["pattern_id"], "version": r["version"],
+             "filename": f"{run_id}.zip", "size_bytes": len(blob)}
+            if ok else {"sent": False, "error": "telegram rejected the upload",
+                        "detail": detail})
+
+
+def _telegram_send_document(token: str, chat_id: str, filename: str,
+                            blob: bytes, caption: str) -> tuple[bool, str]:
+    """POST one multipart sendDocument. Stdlib only — this runs in a process
+    that has no business growing an HTTP dependency."""
+    import urllib.request
+
+    boundary = "----mcp" + uuid.uuid4().hex
+    def part(name, value):
+        return (f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n"
+                f"{value}\r\n").encode()
+
+    body = b"".join([
+        part("chat_id", chat_id),
+        part("caption", caption),
+        (f"--{boundary}\r\nContent-Disposition: form-data; name=\"document\"; "
+         f"filename=\"{filename}\"\r\nContent-Type: application/zip\r\n\r\n").encode(),
+        blob,
+        f"\r\n--{boundary}--\r\n".encode(),
+    ])
+    req = urllib.request.Request(
+        f"https://api.telegram.org/bot{token}/sendDocument",
+        data=body,
+        headers={"content-type": f"multipart/form-data; boundary={boundary}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            payload = json.loads(resp.read())
+            return bool(payload.get("ok")), json.dumps(payload)[:200]
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+
+
 if __name__ == "__main__":
     import io
     import zipfile
@@ -360,14 +459,11 @@ if __name__ == "__main__":
             if not target.is_dir() or runs_dir.resolve() not in target.parents:
                 return PlainTextResponse("no such run", status_code=404)
 
-            buf = io.BytesIO()
-            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-                for f in sorted(target.iterdir()):
-                    if f.is_file():
-                        z.write(f, arcname=f"{run_id}/{f.name}")
-            buf.seek(0)
+            blob = _bundle_bytes(run_id)
+            if blob is None:
+                return PlainTextResponse("no such run", status_code=404)
             return Response(
-                buf.getvalue(),
+                blob,
                 media_type="application/zip",
                 headers={
                     "content-disposition": f'attachment; filename="{run_id}.zip"'

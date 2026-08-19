@@ -140,15 +140,22 @@ unhelpful when the developer is the one asking.
 All read-only, annotated as such at the protocol level. There is no tool that
 can place, modify or close a trade (spec §10).
 
-Artifacts are served by the same process:
+`backtests.send_report` is the one tool that is not read-only: it pushes a run
+bundle into the trader's Telegram chat as a real attachment. It can only send
+files from `trading/runs/`, and only to `TELEGRAM_OWNER_CHAT_ID` — a single
+hard-coded recipient, which is a POC constraint the orchestrator removes once
+its Telegram adapter knows which user is talking.
+
+Artifacts are also served over HTTP:
 
 ```text
 http://127.0.0.1:8081/artifacts/<run_id>/chart.html
 http://127.0.0.1:8081/bundle/<run_id>.zip
 ```
 
-Loopback only — they open on this machine, not from a phone. Spec §5 puts these
-in object storage, which is what makes them reachable anywhere.
+Loopback only — useful at this machine, useless from a phone, which is why
+`send_report` exists. Spec §5 puts these in object storage, which is what makes
+a URL reachable anywhere.
 
 ## Connecting real MT5
 

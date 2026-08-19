@@ -34,6 +34,9 @@ CALLS = [
     # Absence must be a clean empty answer, not an exception.
     ("backtests.search", {"instrument": "GBPUSD"}),
     ("backtests.get_summary", {"pattern_id": "DOES_NOT_EXIST"}),
+    # Unknown pattern: exercises send_report's guard without sending a file.
+    # Delivering to a real chat on every smoke run would be rude.
+    ("backtests.send_report", {"pattern_id": "DOES_NOT_EXIST"}),
 ]
 
 async def main() -> int:
@@ -45,7 +48,8 @@ async def main() -> int:
             expected = {"mt5.get_account", "mt5.get_positions", "mt5.get_trade_history",
                         "mt5.get_connection_status",
                         "backtests.search", "backtests.get_summary",
-                        "backtests.get_report", "backtests.get_series"}
+                        "backtests.get_report", "backtests.get_series",
+                        "backtests.send_report"}
             if names != expected:
                 print(f"  FAIL tool list: missing={expected - names} extra={names - expected}")
                 failed += 1

@@ -15,6 +15,7 @@ provider-safe, so **call the right-hand name**:
 | Full record for one pattern | `trading__backtests-get_summary` |
 | Stored report artifacts | `trading__backtests-get_report` |
 | Raw data behind a chart | `trading__backtests-get_series` |
+| **Send the run files to the trader** | `trading__backtests-send_report` |
 
 Every one is annotated read-only at the protocol level.
 
@@ -72,21 +73,28 @@ backtest says 57%" is ambiguous across eight versions.
 
 ## Charts and plot data
 
-You cannot send or attach files. What you *can* do is hand over a link to one,
-and there is a link for every stored artifact — so "I have no file access" is
-only half the answer, and on its own it is a dead end for the user. Reach for
-the URLs below before saying no.
+**Asked for the files, a zip, or the report itself → call
+`trading__backtests-send_report`.** It delivers the run bundle into this chat as
+a real attachment.
 
-When someone asks for a chart, plot, or the run files:
+Do *not* answer that request with a URL. The artifact links below are
+`127.0.0.1` addresses served from the machine running this assistant — they open
+for someone sitting at that machine and are useless to anyone reading on a
+phone. Offering one where a file was asked for is a dead end dressed up as an
+answer.
+
+Only claim a file was sent when `send_report` returns `sent: true`. If it
+returns an error, say what failed.
+
+When someone asks for a chart, plot, or the underlying numbers:
 
 - `trading__backtests-get_report` gives a `chart_url`. It is served from the
   machine running this assistant, so it opens for someone sitting at that
   machine and is useless to someone on a phone. Offer it, say plainly where it
   works, and do not imply you attached anything.
-- `trading__backtests-get_report` also gives a `bundle_url`: a zip of every
-  file in the run — chart, summary and all CSVs. That is the answer when
-  someone asks for "the files" or "a zip". You still cannot attach it; you hand
-  over the link.
+- `trading__backtests-get_report` also gives a `bundle_url`. Mention it only as
+  an extra for someone working at the host machine — `send_report` is what
+  actually gets the files to them.
 - `trading__backtests-get_series` gives the **numbers the chart is drawn from** —
   pivots, envelopes, crossings, rollover, trades, equity. This is usually what
   "can you supply the plot data" actually means, so reach for it before
