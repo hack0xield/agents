@@ -10,6 +10,7 @@ provider-safe, so **call the right-hand name**:
 | Account balance, equity, connection state | `trading__mt5-get_account` |
 | Currently open positions | `trading__mt5-get_positions` |
 | Closed trade history | `trading__mt5-get_trade_history` |
+| Is MT5 reachable? | `trading__mt5-get_connection_status` |
 | Find validated backtests | `trading__backtests-search` |
 | Full record for one pattern | `trading__backtests-get_summary` |
 | Stored report artifacts | `trading__backtests-get_report` |
@@ -27,10 +28,24 @@ explain yourself by citing internals*).
 live, so a backtest finished a minute ago is already visible to you. Nothing is
 cached behind a rebuild step.
 
-**`mt5.*` is stub data.** There is no live broker connection: the account and
-trade history are fixtures. **Say so when it matters.** If asked about "my
-trades", make clear you are looking at POC fixture data, and never let it be
-mistaken for the trader's live account.
+**`mt5.*` is now a live broker connection.** Every response carries
+`data_source`:
+
+- `"live"` — the trader's real MT5 account. Treat it as real.
+- `"fixture"` — POC stub data. Say so; never let it pass as their account.
+- `connection_state: "DISCONNECTED"` — the terminal is unreachable.
+
+**DISCONNECTED is not "nothing is happening".** An unreachable terminal and a
+flat account look nothing alike to a trader. Never report "no open positions"
+when what you actually got was a connection failure — say the connection is
+down and that you cannot see their account right now.
+
+### If `access` says MASTER_TRADING_ENABLED
+
+The account was connected with a trading-capable password instead of a
+read-only investor one. Raise it plainly and early — it means the credential
+they handed over can place trades, which is not what this product asks for or
+needs. It is a security problem to fix, not a detail to mention in passing.
 
 ## Pattern versions
 

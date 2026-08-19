@@ -21,6 +21,7 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 CALLS = [
+    ("mt5.get_connection_status", {}),
     ("mt5.get_account", {}),
     ("mt5.get_positions", {}),
     ("mt5.get_trade_history", {"limit": 2}),
@@ -42,6 +43,7 @@ async def main() -> int:
             await s.initialize()
             names = {t.name for t in (await s.list_tools()).tools}
             expected = {"mt5.get_account", "mt5.get_positions", "mt5.get_trade_history",
+                        "mt5.get_connection_status",
                         "backtests.search", "backtests.get_summary",
                         "backtests.get_report", "backtests.get_series"}
             if names != expected:

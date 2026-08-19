@@ -66,9 +66,14 @@ lazily, so if it is not up, tool calls fail at request time rather than at
 startup, which looks like the agent choosing not to use them.
 
 ```bash
-./scripts/mcp-server.sh      # terminal 1: read-only trading tools on :8081
-npm run gateway              # terminal 2: loads .env, starts the gateway
+./scripts/mt5-bridge.sh      # terminal 1: read-only MT5 bridge on :8082 (Wine)
+./scripts/mcp-server.sh      # terminal 2: trading tools on :8081
+npm run gateway              # terminal 3: loads .env, starts the gateway
 ```
+
+The bridge is optional — without it `mt5.*` reports `DISCONNECTED` and the
+`backtests.*` tools still work. It never falls back to fixtures silently; set
+`MT5_MODE=fixtures` to ask for stub data explicitly.
 
 Then DM the bot on Telegram. Because `dmPolicy: "pairing"`, the first message
 from an unknown account is held pending approval:

@@ -29,6 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import mt5_live
 import runs
 from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
@@ -118,31 +119,56 @@ def _series_for(run_id: str) -> list[str]:
 @_traced("mt5.get_account")
 def mt5_get_account() -> dict:
     """Current state of the connected MT5 account: balance, equity, margin,
-    open position count and connection health. Read-only."""
-    return _load("account.json")
+    open position count and connection health. Read-only.
+
+    Check `data_source`: "live" is the trader's real account, "fixture" is POC
+    stub data, and `connection_state: DISCONNECTED` means the terminal is not
+    reachable — report that rather than treating it as an empty account.
+
+    If `access` is "MASTER_TRADING_ENABLED" the account was connected with a
+    trading-capable password instead of an investor one. Say so plainly: it is
+    a security problem the trader needs to fix, not a detail to skip over.
+    """
+    return mt5_live.get_account()
 
 
 @mcp.tool(name="mt5.get_positions", annotations=READ_ONLY)
 @_traced("mt5.get_positions")
-def mt5_get_positions() -> list[dict]:
+def mt5_get_positions() -> list | dict:
     """Currently open positions. Returns an empty list when flat — an empty
-    result is a real answer, not a failure."""
-    return _load("positions.json")
+    result is a real answer, not a failure.
+
+    A dict with `connection_state: DISCONNECTED` means the terminal is
+    unreachable. That is not the same as being flat, and must never be reported
+    as "no open positions".
+    """
+    return mt5_live.get_positions()
 
 
 @mcp.tool(name="mt5.get_trade_history", annotations=READ_ONLY)
 @_traced("mt5.get_trade_history")
-def mt5_get_trade_history(limit: int = 20, symbol: str | None = None) -> list[dict]:
+def mt5_get_trade_history(limit: int = 20, symbol: str | None = None,
+                          days: int = 90) -> list | dict:
     """Closed trades, most recent last.
+
+    One row per completed round trip, not per MT5 deal — entry and exit deals
+    are paired by position, so nothing is double-counted. Positions still open
+    are not here; use mt5.get_positions.
 
     Args:
         limit: maximum number of trades to return.
         symbol: optional instrument filter, e.g. "XAUUSD".
+        days: how far back to search the account history.
     """
-    rows = _load("trade_history.json")
-    if symbol:
-        rows = [r for r in rows if r["symbol"].upper() == symbol.upper()]
-    return rows[-limit:]
+    return mt5_live.get_trade_history(limit=limit, symbol=symbol, days=days)
+
+
+@mcp.tool(name="mt5.get_connection_status", annotations=READ_ONLY)
+@_traced("mt5.get_connection_status")
+def mt5_get_connection_status() -> dict:
+    """Whether the MT5 terminal is reachable, and whether account data is live
+    or fixture-backed. Use this when a data call reports DISCONNECTED."""
+    return mt5_live.status()
 
 
 # ──────────────────────────── backtests.* ─────────────────────────────────

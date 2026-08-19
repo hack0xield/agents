@@ -98,6 +98,44 @@ with customers.
 
 ---
 
+## 3b. Measured capacity — and the one open question
+
+Measured on the installed terminal, 2026-08-20 (full data in
+`experiments/RESULTS.md`):
+
+| | |
+|---|---|
+| Cold start — launch + login + query | 3.0–3.5 s |
+| Warm reconnect — terminal already up | 4–7 ms |
+| terminal64.exe footprint | 262–300 MB RSS, 6.8% CPU |
+| Concurrent terminals (memory-bound, 32 GB box) | ~65–70 |
+| Disk per instance | 298 MB (1.1 GB with the price cache) |
+
+The terminal survives `mt5.shutdown()`, so connection lifetime and terminal
+lifetime are independent. A 3.4 s cold start also means pure on-demand is
+viable for answering questions — it is only proactive monitoring that needs
+something running.
+
+### Open: can one terminal serve several accounts?
+
+**Untested — needs a second credential, and it decides the architecture.**
+
+If re-login is cheap and unpoliced, one terminal multiplexes many accounts and
+the fleet is small. If it is slow or rate-limited, it is one terminal per
+account and §19's local bridge becomes the scaling answer rather than a
+footnote.
+
+To settle it, create a second free MetaQuotes demo account and measure:
+
+1. `initialize(login=A)` → `shutdown()` → `initialize(login=B)` against the
+   same terminal path. Does it re-authenticate, and how long does it take?
+2. Whether sustained A→B→A switching trips rate limiting or security flags.
+   A prop firm will police this harder than a demo server, so testing against
+   FTMO matters more than testing against MetaQuotes-Demo.
+
+Until that is answered, size the fleet pessimistically at one terminal per
+account and treat multiplexing as an optimisation, not a plan.
+
 ## 4. The infrastructure reality
 
 `MetaTrader5` is a Windows-only package that talks to `terminal64.exe` over a
@@ -121,6 +159,32 @@ and monitoring stops when their machine sleeps. Worth keeping in view as the
 scaling answer, not the starting one.
 
 ---
+
+## 4b. What is built
+
+The read-only façade from §1 exists: `mt5_bridge/bridge.py`, running under the
+Wine Python that shares the MT5 prefix, serving loopback HTTP on :8082.
+
+It calls exactly three MT5 functions — `account_info`, `positions_get`,
+`history_deals_get`. No trading entry point is imported anywhere in the file, so
+no configuration can reach one.
+
+`mcp_server/mt5_live.py` is the Linux-side client. Two modes via `MT5_MODE`:
+`live` (default) and `fixtures`. **There is no silent fallback between them.**
+Quietly serving stub data for a real account is the worst failure available
+here — a trader told about positions they do not hold, or reassured about a
+balance that is not theirs. Every payload carries `data_source`, and an
+unreachable bridge returns `connection_state: DISCONNECTED` rather than an
+empty list, because "no positions" and "cannot see your account" are different
+sentences.
+
+Trade history is reconstructed from deals: MT5 records an entry deal and an
+exit deal sharing a `position_id`, so they are paired into one row per
+completed round trip. Reporting raw deals would show every position twice.
+
+Live against the founder's demo account, the first thing it surfaced was
+`access: MASTER_TRADING_ENABLED` — the §1 problem, confirmed in production data
+rather than in theory.
 
 ## 5. Build order
 
