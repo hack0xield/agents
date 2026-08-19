@@ -94,15 +94,26 @@ openclaw/openclaw.json5   versioned gateway config (no secrets)
 scripts/node-env.sh       puts Node 24 on PATH
 scripts/install-config.sh installs the config to ~/.openclaw/
 scripts/gateway.sh        loads .env, starts the gateway
-scripts/oc                openclaw CLI wrapper with .env + Node 24 loaded
-scripts/mcp-server.sh     read-only trading tools (fixtures)
-scripts/install-agent-workspace.sh   agent behaviour -> OpenClaw workspace
-scripts/link-claude-cli.sh           resolve the Claude Code binary
+scripts/                  run + setup only, no tests
+  gateway.sh                OpenClaw gateway
+  mcp-server.sh             trading tools on :8081
+  mt5-bridge.sh             read-only MT5 bridge on :8082 (Wine)
+  oc                        openclaw CLI with .env + Node 24
+  list-tools.sh             print the agent's tool surface
+  install-config.sh         openclaw.json5 -> ~/.openclaw (merges)
+  install-agent-workspace.sh  agent behaviour -> OpenClaw workspace
+  link-claude-cli.sh        resolve the Claude Code binary
+  node-env.sh               puts Node 24 on PATH (sourced)
+
+tests/                    everything that verifies, nothing that runs
+  smoke-mcp.sh              all 8 tools against the live server
+  test-offline.sh           mt5.* degrades to DISCONNECTED
+  run-evals.sh              behavioural probes through the agent
+  agent-evals/behaviour.md  the eval set itself (spec §61)
 
 agent-workspace/          agent behaviour, version controlled here
-mcp_server/               stub MCP tools + fixtures
-mcp_server/build_fixtures.py         derives fixtures from ../trading/runs
-tests/agent-evals/        behavioural eval set (spec §61)
+mcp_server/               MCP tools; backtests read ../trading/runs live
+mt5_bridge/               read-only MT5 facade (runs under Wine)
 ```
 
 ## What the agent can do
@@ -182,8 +193,8 @@ Three layers, cheapest first. The first two cost nothing — run them constantly
 ### 1. Tools (free, ~2s)
 
 ```bash
-./scripts/smoke-mcp.sh       # all 8 tools against the running server
-./scripts/test-offline.sh    # mt5.* degrades to DISCONNECTED, never fakes
+./tests/smoke-mcp.sh       # all 8 tools against the running server
+./tests/test-offline.sh    # mt5.* degrades to DISCONNECTED, never fakes
 ```
 
 `smoke-mcp.sh` needs the MCP server up. It exists because importing the module
@@ -199,8 +210,8 @@ account" mean opposite things to a trader.
 ### 2. Behaviour (costs tokens, ~5 min)
 
 ```bash
-./scripts/run-evals.sh          # all nine probes
-./scripts/run-evals.sh T1 T4    # just these
+./tests/run-evals.sh          # all nine probes
+./tests/run-evals.sh T1 T4    # just these
 ```
 
 Each probe runs in its own throwaway session, so they neither pollute your
@@ -409,7 +420,7 @@ Both processes must be up first (MCP server, then gateway).
 **Smoke-test the tools first** — calls every tool against the running server:
 
 ```bash
-./scripts/smoke-mcp.sh
+./tests/smoke-mcp.sh
 ```
 
 Run this after any change to `mcp_server/`. Importing the module is not enough:
@@ -420,8 +431,8 @@ while the import-level checks passed.
 **Automated probes** — replays the behavioural eval prompts and prints replies:
 
 ```bash
-./scripts/run-evals.sh          # all nine
-./scripts/run-evals.sh T1 T3    # just these
+./tests/run-evals.sh          # all nine
+./tests/run-evals.sh T1 T3    # just these
 ```
 
 It deliberately does not auto-grade. "Did it overstate certainty" is a

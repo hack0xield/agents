@@ -97,7 +97,7 @@ becomes a database column instead of a wish.
 - `agent-workspace/TOOLS.md` — merges into the system prompt
 - `tests/agent-evals/behaviour.md` — the eval set is the safety net *for* the
   migration; run it against both runtimes and compare
-- `scripts/smoke-mcp.sh` — unchanged, the tool server does not move
+- `tests/smoke-mcp.sh` — unchanged, the tool server does not move
 
 **Discarded:**
 

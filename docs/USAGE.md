@@ -245,7 +245,7 @@ keyed by session key. Working through `--session-key` never touches the DM.
   -m "your question"
 ```
 
-`./scripts/run-evals.sh` already does this per probe.
+`./tests/run-evals.sh` already does this per probe.
 
 Reset when the agent references something you did not say in this conversation,
 after changing `agent-workspace/` files, or when `sessions list` shows context

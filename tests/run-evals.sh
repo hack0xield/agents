@@ -18,8 +18,8 @@
 #      independent refusal the probe is meant to measure.
 #
 # Usage:
-#   ./scripts/run-evals.sh          # all probes
-#   ./scripts/run-evals.sh B2 T3    # only these
+#   ./tests/run-evals.sh          # all probes
+#   ./tests/run-evals.sh B2 T3    # only these
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

@@ -217,7 +217,7 @@ same session Telegram DMs use. Evals run through it land in the user's real
 chat history, and each probe sees the previous one — B2 came back with "same
 answer as before" instead of an independent refusal.
 
-`scripts/run-evals.sh` gives every probe its own throwaway session key. Manual
+`tests/run-evals.sh` gives every probe its own throwaway session key. Manual
 one-off probes need `--session-key agent:trading-assistant:scratch-$(date +%s)`
 or they will contaminate the live conversation.
 
