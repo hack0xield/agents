@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# openclaw CLI with Node 24 and .env loaded. Usage: ./scripts/oc <args...>
+set -euo pipefail
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/node-env.sh
+source "$REPO/scripts/node-env.sh"
+
+if [ -f "$REPO/.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$REPO/.env"
+  set +a
+fi
+
+exec "$REPO/node_modules/.bin/openclaw" "$@"

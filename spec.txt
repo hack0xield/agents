@@ -1,0 +1,2585 @@
+# AI Trading Assistant Infrastructure Specification
+
+**Version:** 0.1
+**Product:** B2C AI Trading Assistant for Prop Traders
+**Primary channel:** Telegram
+**Initial trading platform:** MetaTrader 5
+**Initial customer:** Founder / User #1
+**Target architecture:** 1,000+ paying users
+**Implementation assumption:** one Architect-level engineer using AI coding tools
+
+---
+
+# 1. Product Definition
+
+The product is a persistent AI trading assistant for retail and prop traders.
+
+The assistant combines:
+
+1. a general-purpose frontier LLM;
+2. a proprietary database of precomputed backtests;
+3. real-time read-only access to the user's MT5 account;
+4. deterministic real-time pattern detection;
+5. market-calendar and trading-event monitoring;
+6. trading discipline monitoring;
+7. persistent user-specific memory;
+8. proactive communication through Telegram.
+
+The assistant **does not execute trades**.
+
+The assistant observes, analyses, retrieves historical evidence, identifies relevant situations and communicates with the trader.
+
+Its core purpose is not:
+
+> "Tell me whether EURUSD will go up."
+
+Its core purpose is:
+
+> "Tell me whether something is happening now that resembles a scenario we have previously tested, what the historical evidence says about it, whether there are important contextual events, and whether my current behaviour violates my own trading rules."
+
+---
+
+# 2. Fundamental Architectural Principle
+
+The LLM must **not continuously analyse market data**.
+
+It must not receive every tick, every candle update or every account update.
+
+Instead:
+
+```text
+MARKET / MT5 / CALENDAR
+          ↓
+DETERMINISTIC EVENT ENGINE
+          ↓
+     Is anything
+     interesting?
+      ↓       ↓
+     NO      YES
+     ↓        ↓
+  nothing   structured event
+              ↓
+        AGENT ORCHESTRATOR
+              ↓
+             LLM
+              ↓
+          Telegram
+```
+
+The infrastructure watches the market.
+
+The LLM interprets and communicates significant events.
+
+This separation is critical for:
+
+* token cost;
+* latency;
+* scalability;
+* reproducibility;
+* auditability;
+* false-positive control;
+* future model independence.
+
+---
+
+# 3. High-Level User Journey
+
+## 3.1 Registration
+
+User visits the website.
+
+User creates an account using:
+
+* email + password; or
+* Google/Apple authentication later.
+
+System creates:
+
+```text
+User
+Subscription
+Entitlements
+AgentProfile
+```
+
+---
+
+# 3.2 Payment
+
+User chooses a subscription.
+
+Payment is processed through Stripe Checkout.
+
+Stripe supports subscription provisioning through Checkout and lifecycle updates through webhooks. Stripe Customer Portal can later handle payment-method changes, invoices and cancellations without requiring us to build billing UI ourselves.
+
+After successful subscription activation:
+
+```text
+Stripe
+   ↓ webhook
+Billing Service
+   ↓
+Subscription = ACTIVE
+   ↓
+Entitlements activated
+```
+
+---
+
+# 3.3 Telegram Pairing
+
+Website displays:
+
+**Connect Telegram**
+
+The user receives a unique signed deep link such as:
+
+```text
+https://t.me/TradingAssistantBot?start=<PAIRING_TOKEN>
+```
+
+User clicks it.
+
+Telegram opens the bot.
+
+The backend verifies the token and creates:
+
+```text
+User ID ↔ Telegram User ID
+```
+
+The bot replies:
+
+> Your Trading Assistant is connected.
+>
+> Next step: connect your MT5 account.
+
+Telegram supports bot interaction through its Bot API and webhook delivery, so production communication should use webhooks rather than polling.
+
+---
+
+# 3.4 MT5 Connection
+
+The bot must **not ask the user to send the MT5 password inside Telegram chat**.
+
+Instead it sends a secure link:
+
+> Connect MT5 Account
+
+The user opens an authenticated HTTPS page and enters:
+
+```text
+MT5 login
+MT5 investor password
+Broker / Prop Firm
+MT5 server
+Account nickname
+```
+
+Example:
+
+```text
+Login: 10534821
+Server: FTMO-Demo2
+Password: ***********
+Nickname: FTMO 100K Challenge
+```
+
+Only an **Investor Password** is accepted.
+
+The master trading password must never be accepted.
+
+MT5 explicitly supports investor mode as read-only access: trading is disabled when connected using the investor password. MT5 documentation also states that OTP is not required when connecting in read-only investor mode.
+
+Successful connection creates:
+
+```text
+TradingAccount
+MT5Connection
+RiskProfile
+AccountState
+```
+
+Assistant sends:
+
+> FTMO 100K Challenge connected.
+>
+> Balance: $100,000
+> Equity: $100,000
+> Open positions: 0
+>
+> Monitoring is active.
+
+---
+
+# 4. Recommended Architecture
+
+## 4.1 Core Components
+
+```text
+                        ┌─────────────────┐
+                        │     Website     │
+                        └────────┬────────┘
+                                 │
+                         Authentication
+                                 │
+                                 ▼
+┌──────────┐           ┌──────────────────┐
+│ Telegram │◄─────────►│   Product API    │
+└──────────┘           └────────┬─────────┘
+                               │
+              ┌────────────────┼────────────────┐
+              │                │                │
+              ▼                ▼                ▼
+       Subscription       User/Memory      Agent Runtime
+          Service          Service             │
+                                              │
+                     ┌────────────────────────┼──────────────┐
+                     │                        │              │
+                     ▼                        ▼              ▼
+                Backtest KB              MT5 Tools      Calendar Tools
+                     │                        │
+                     ▼                        ▼
+               Pattern Engine          MT5 Connector
+                     │                        │
+                     └───────────┬────────────┘
+                                 ▼
+                            Event Engine
+                                 │
+                                 ▼
+                          Notification Queue
+                                 │
+                                 ▼
+                          Agent Orchestrator
+                                 │
+                                 ▼
+                              Claude
+                                 │
+                                 ▼
+                             Telegram
+```
+
+---
+
+# 5. Technology Strategy
+
+## 5.1 Do Not Start With Microservices
+
+For one engineer, the initial implementation should be a **modular monolith plus asynchronous workers**.
+
+Suggested stack:
+
+### Core backend
+
+Python + FastAPI.
+
+Reasons:
+
+* strong data-processing ecosystem;
+* MT5 Python integration;
+* good Anthropic SDK support;
+* easy background jobs;
+* good statistical tooling.
+
+### Frontend
+
+Next.js.
+
+### Primary database
+
+PostgreSQL.
+
+### Vector retrieval
+
+PostgreSQL + vector extension initially.
+
+Do not introduce a dedicated vector database until scale demonstrates a real requirement.
+
+### Cache / queue
+
+Redis.
+
+### Object storage
+
+S3-compatible object storage.
+
+Used for:
+
+* PDF/HTML backtest reports;
+* raw backtest datasets;
+* charts;
+* exports;
+* audit artifacts.
+
+### Background jobs
+
+Celery / Dramatiq / equivalent lightweight queue.
+
+### Secrets
+
+Cloud Secrets Manager / Vault/KMS.
+
+### Deployment
+
+Linux containers for normal services.
+
+Dedicated Windows workers for MT5 terminal connectivity.
+
+---
+
+# 6. OpenClaw Decision
+
+OpenClaw is useful for the **User #1 prototype**.
+
+It already supports:
+
+* Telegram;
+* tools;
+* skills;
+* plugins;
+* persistent memory;
+* model providers.
+
+Its Telegram channel is production-supported, and its skill system can inject skill instructions into the agent context.
+
+However, OpenClaw's own architecture documentation describes it primarily as a personal assistant for a **single trusted operator**. Its security documentation explicitly states that one shared Gateway is not intended to provide hostile multi-tenant isolation. Separate tenant instances are recommended, and its fleet-based multi-tenant hosting remains experimental.
+
+Therefore:
+
+## Recommendation
+
+### User #1 / Prototype
+
+OpenClaw may be used as:
+
+```text
+Telegram
+   ↓
+OpenClaw
+   ↓
+Claude
+   ↓
+our MCP tools
+```
+
+This gives extremely fast product validation.
+
+### Production
+
+OpenClaw must **not be a mandatory architectural dependency**.
+
+Production should evolve toward:
+
+```text
+Telegram
+    ↓
+Our Agent Orchestrator
+    ↓
+Claude API
+    ↓
+Our tools / MCP
+```
+
+OpenClaw can remain:
+
+* a development sandbox;
+* a reference implementation;
+* an internal founder assistant;
+* potentially an isolated per-user runtime for special accounts.
+
+But the SaaS identity, subscriptions, permissions, backtests, alerts and trading telemetry must belong to our Product Core.
+
+---
+
+# 7. Agent Runtime
+
+The assistant should not be implemented as one giant prompt.
+
+It consists of:
+
+```text
+Agent
+├── Identity
+├── System Behaviour
+├── User Memory
+├── Trading Profile
+├── Skills
+├── Tools
+├── Conversation Context
+└── Event Context
+```
+
+---
+
+# 8. LLM Strategy
+
+The LLM provider must be abstracted behind:
+
+```text
+LLMProvider
+```
+
+Example:
+
+```python
+generate_response()
+call_tool()
+summarize_session()
+classify_event()
+```
+
+This allows future replacement or combination of:
+
+* Anthropic;
+* OpenAI;
+* other providers.
+
+For the current implementation, Claude is a sensible default.
+
+As of August 2026, Anthropic positions Sonnet 5 as the speed/intelligence balance, Haiku 4.5 as its lowest-cost current tier, with Opus 5 and Fable 5 available for more demanding reasoning workloads. Current API pricing listed by Anthropic is $2/$10 per million input/output tokens for Sonnet 5 and $1/$5 for Haiku 4.5.
+
+Recommended routing:
+
+```text
+NO LLM
+    │
+    ├── deterministic notifications
+    │
+Haiku
+    │
+    ├── classification
+    ├── summarisation
+    └── low-value transformations
+    │
+Sonnet
+    │
+    ├── normal conversation
+    ├── trading explanations
+    ├── proactive commentary
+    └── backtest interpretation
+    │
+Opus/Fable
+    │
+    └── optional deep analysis
+```
+
+Sonnet should therefore be the normal "brain".
+
+The expensive model must be an **exception**, not the default.
+
+---
+
+# 9. Agent System Behaviour
+
+The permanent system instructions must establish the following behavioural principles.
+
+## 9.1 Evidence hierarchy
+
+The assistant distinguishes between:
+
+### Level A
+
+Verified proprietary backtest evidence.
+
+### Level B
+
+Current deterministic account or market data.
+
+### Level C
+
+External factual market information.
+
+### Level D
+
+General LLM reasoning.
+
+The assistant must never present D as A.
+
+---
+
+# 9.2 No invented backtests
+
+If the user asks:
+
+> What does the backtest say about this setup?
+
+The assistant MUST call:
+
+```text
+backtests.search()
+```
+
+If no matching backtest exists:
+
+> We don't currently have a validated backtest for this exact scenario.
+
+It must never generate plausible statistics.
+
+---
+
+# 9.3 Wording of statistical evidence
+
+Avoid:
+
+> This pattern has been statistically proven to work.
+
+Prefer:
+
+> Under the tested historical conditions, this pattern demonstrated positive historical expectancy.
+
+The distinction matters because historical evidence is conditional on:
+
+* sample period;
+* market regime;
+* instrument;
+* execution assumptions;
+* sample size;
+* spread/slippage;
+* parameter selection;
+* out-of-sample behaviour.
+
+---
+
+# 9.4 Behavioural observations
+
+Assistant must not tell the trader:
+
+> You are emotional.
+
+Instead:
+
+> Your last three trades show a behaviour consistent with revenge trading: position size increased after two consecutive losses and the third entry occurred four minutes after the previous stop-out.
+
+Observation first.
+
+Interpretation second.
+
+---
+
+# 10. Tool Architecture
+
+Tools should be narrow and strongly typed.
+
+Example namespaces:
+
+```text
+mt5.*
+backtests.*
+patterns.*
+calendar.*
+account.*
+memory.*
+risk.*
+market.*
+```
+
+Example tools:
+
+```text
+mt5.get_account()
+mt5.get_positions()
+mt5.get_orders()
+mt5.get_trade_history()
+
+backtests.search()
+backtests.get_summary()
+backtests.get_report()
+
+patterns.get_active()
+patterns.get_history()
+
+calendar.get_events()
+
+risk.get_status()
+risk.get_violations()
+
+memory.search()
+memory.save_preference()
+```
+
+There must be **no**:
+
+```text
+mt5.open_trade()
+mt5.close_trade()
+mt5.modify_trade()
+```
+
+in V1.
+
+---
+
+# 11. MCP
+
+MCP can be used as the tool interface between the agent and internal services.
+
+Anthropic's Agent SDK supports MCP-connected external tools and data sources, including in-process custom MCP tools.
+
+However:
+
+**MCP is not the real-time event transport.**
+
+It should be used when the agent asks:
+
+> Give me this account's positions.
+
+Not for:
+
+```text
+tick
+tick
+tick
+tick
+tick
+tick
+```
+
+Real-time streams belong to normal application infrastructure.
+
+---
+
+# 12. Backtest Knowledge Base
+
+This is one of the core proprietary assets of the business.
+
+The backtest system must produce two outputs.
+
+## Human-readable output
+
+Report containing:
+
+* hypothesis;
+* conditions;
+* instruments;
+* timeframe;
+* tested period;
+* sample size;
+* entry logic;
+* exit logic;
+* risk rules;
+* results;
+* distributions;
+* limitations;
+* charts.
+
+## Machine-readable output
+
+Structured object.
+
+Example:
+
+```json
+{
+  "pattern_id": "XAU_H4_MZ_REVERSAL",
+  "version": 4,
+  "instrument": "XAUUSD",
+  "timeframe": "H4",
+  "tested_from": "2015-01-01",
+  "tested_to": "2026-01-01",
+  "sample_size": 438,
+  "win_rate": 0.57,
+  "expectancy_r": 0.21,
+  "profit_factor": 1.34,
+  "conditions": {},
+  "invalidations": {},
+  "detector_version": "4.2"
+}
+```
+
+---
+
+# 13. Backtest Versioning
+
+Backtests must be immutable.
+
+Never silently overwrite:
+
+```text
+Pattern A v3
+```
+
+with new statistics.
+
+Instead create:
+
+```text
+Pattern A v4
+```
+
+Each live alert stores:
+
+```text
+pattern_version
+detector_version
+backtest_run_id
+```
+
+Therefore six months later we can reconstruct exactly:
+
+> Why did the system send this alert?
+
+---
+
+# 14. Live Pattern Detection
+
+Every backtested strategy intended for real-time monitoring must provide a machine-readable detector.
+
+Architecture:
+
+```text
+Backtest
+    ↓
+Pattern Definition
+    ↓
+Live Detector
+    ↓
+market data
+    ↓
+PatternEvent
+```
+
+Example:
+
+```text
+PATTERN_DETECTED
+
+pattern = XAU_H4_MZ_REVERSAL
+version = 4
+instrument = XAUUSD
+time = 14:00 UTC
+
+historical_sample = 438
+historical_expectancy = +0.21R
+historical_win_rate = 57%
+
+current_conditions = [...]
+```
+
+Only then is the LLM called.
+
+---
+
+# 15. Compute Once, Notify Many
+
+This becomes crucial at 1,000 users.
+
+Suppose 600 users watch XAUUSD.
+
+Do **not** run the XAUUSD pattern detector 600 times.
+
+Run:
+
+```text
+XAUUSD detector
+       ↓
+PatternEvent
+       ↓
+Subscribers matching event
+       ↓
+User-specific filtering
+       ↓
+notifications
+```
+
+This means:
+
+**market intelligence is computed per market, not per user.**
+
+Personalisation happens afterwards.
+
+---
+
+# 16. MT5 Integration
+
+The MT5 layer should be completely separated from the LLM.
+
+```text
+MT5
+ ↓
+Connector
+ ↓
+Normalized Account Events
+ ↓
+Event Bus
+```
+
+Normalize broker-specific data into our format.
+
+Example:
+
+```json
+{
+  "account_id": "...",
+  "event": "POSITION_OPENED",
+  "symbol": "XAUUSD",
+  "direction": "BUY",
+  "volume": 2.0,
+  "price": 2381.42,
+  "stop_loss": 2368.20,
+  "timestamp": "..."
+}
+```
+
+---
+
+# 17. MT5 Connector Strategy
+
+## Stage A: Founder Alpha
+
+One dedicated MT5 terminal.
+
+```text
+Founder account
+      ↓
+MT5 Terminal
+      ↓
+MT5 Connector
+```
+
+Existing MT5 MCP code can be reused where practical.
+
+---
+
+# 18. Multi-user MT5 Architecture
+
+At scale, the system should operate a fleet of isolated MT5 connector workers.
+
+Conceptually:
+
+```text
+             Account Registry
+                    ↓
+            Connector Scheduler
+                    ↓
+    ┌───────────────┼───────────────┐
+    ▼               ▼               ▼
+Worker A         Worker B         Worker C
+Windows          Windows          Windows
+MT5 instances    MT5 instances    MT5 instances
+```
+
+Each account has an assigned connector.
+
+Connector health:
+
+```text
+CONNECTED
+DISCONNECTED
+AUTH_FAILED
+STALE
+RECONNECTING
+```
+
+The actual number of terminal instances sustainable per worker must be established through load testing rather than hard-coded as an architectural assumption.
+
+---
+
+# 19. Future Alternative: Local Bridge
+
+Server-hosted MT5 terminals introduce infrastructure cost because every connected account requires persistent connectivity.
+
+Therefore a future alternative should be supported:
+
+```text
+User PC
+  ↓
+lightweight EA / local connector
+  ↓ encrypted websocket
+Cloud
+```
+
+Advantages:
+
+* no investor password stored by us;
+* reduced MT5 cloud infrastructure;
+* easier account scaling.
+
+Disadvantage:
+
+* user must install software;
+* monitoring stops when terminal/device is offline.
+
+For the initial B2C experience, server-side Investor Password connectivity is preferable because onboarding is much simpler.
+
+---
+
+# 20. Market Event Skills
+
+Skills are modular capabilities.
+
+Examples:
+
+```text
+options_expiry
+quarter_end
+month_end
+year_end
+bank_holiday
+major_macro_event
+futures_expiry
+rollover_warning
+prop_risk_guard
+revenge_trade_detector
+overtrading_detector
+pattern_alert
+daily_brief
+```
+
+---
+
+# 21. Skill Architecture
+
+A skill must **not merely be another giant prompt**.
+
+Each skill should contain:
+
+```text
+Skill
+├── manifest
+├── deterministic logic
+├── trigger definitions
+├── required data
+├── tools
+├── LLM instructions
+├── notification policy
+└── tests
+```
+
+Example:
+
+```yaml
+id: options_expiry
+version: 2
+
+triggers:
+  - scheduled
+  - relevant_position_open
+
+required_data:
+  - expiry_calendar
+  - open_positions
+
+severity:
+  default: informational
+
+llm:
+  required: false
+```
+
+This design is similar conceptually to OpenClaw's separation between tools, skills and plugins, but adapted to a multi-tenant SaaS rather than loading everything into a personal agent's prompt. OpenClaw itself describes skills as instructions teaching an agent how and when to use tools.
+
+---
+
+# 22. Adding New Skills
+
+Development workflow:
+
+```text
+Create skill
+     ↓
+Unit tests
+     ↓
+Replay historical events
+     ↓
+Founder account
+     ↓
+Internal beta
+     ↓
+Feature flag
+     ↓
+Production
+```
+
+Skills should be Git-versioned.
+
+Example repository:
+
+```text
+/skills
+    /pattern-alert
+    /risk-guard
+    /options-expiry
+    /holiday-calendar
+    /revenge-trading
+```
+
+No admin UI is required initially.
+
+Git + config + feature flags are enough.
+
+---
+
+# 23. User Memory Architecture
+
+"Memory" should be divided into separate concepts.
+
+## Memory A: Global Knowledge
+
+Shared across all users.
+
+Contains:
+
+* backtests;
+* methodology;
+* definitions;
+* trading rules;
+* calendar knowledge.
+
+---
+
+## Memory B: User Profile
+
+Structured.
+
+Example:
+
+```text
+Preferred instruments:
+XAUUSD
+EURUSD
+
+Normal risk:
+0.5%
+
+Maximum risk:
+1%
+
+Max daily loss:
+2%
+
+Preferred trading session:
+London / New York
+
+Communication style:
+concise
+```
+
+Store as structured DB fields where possible.
+
+---
+
+# 24. Memory C: User Trading Behaviour
+
+Examples:
+
+```text
+Often increases size after losses.
+Historically overtrades after 3 consecutive losses.
+Usually trades XAUUSD during London/NY overlap.
+```
+
+These must be supported by observed data.
+
+---
+
+# 25. Memory D: Episodic Memory
+
+Examples:
+
+> On 17 August the user lost three XAUUSD trades and then opened a fourth trade at 2x normal size.
+
+Store:
+
+```text
+structured event
++
+short textual summary
+```
+
+---
+
+# 26. Memory E: Conversation
+
+Do not keep sending the entire Telegram history to Claude.
+
+Instead:
+
+```text
+recent turns
++
+conversation summary
++
+retrieved relevant memories
+```
+
+The agent receives only context relevant to the current question.
+
+---
+
+# 27. Vector Memory Rule
+
+Do not put everything into embeddings.
+
+Use:
+
+### SQL
+
+for:
+
+* account facts;
+* trading rules;
+* subscriptions;
+* statistics;
+* backtest metrics;
+* positions;
+* events.
+
+### Vector search
+
+for:
+
+* long-form notes;
+* qualitative observations;
+* conversation memories;
+* methodology documentation.
+
+Structured truth should remain structured.
+
+---
+
+# 28. Discipline Engine
+
+This should be one of the strongest differentiators of the product.
+
+It analyses account behaviour without an LLM.
+
+Examples of deterministic signals:
+
+### Risk increase after loss
+
+```text
+normal risk = 0.5%
+loss
+next trade risk = 1.2%
+
+→ RISK_ESCALATION
+```
+
+### Revenge-like re-entry
+
+```text
+trade stopped
+3 minutes later
+same instrument
+same direction
+larger size
+
+→ POSSIBLE_REVENGE_TRADE
+```
+
+### Overtrading
+
+```text
+historical median = 3 trades/day
+
+today = 11
+
+→ OVERTRADING_ALERT
+```
+
+### Stop widening
+
+```text
+initial SL = -0.7R
+modified SL = -1.4R
+
+→ STOP_WIDENED
+```
+
+### Loss chasing
+
+```text
+3 losses
+position size:
+0.5%
+0.5%
+1%
+2%
+
+→ LOSS_CHASING_SEQUENCE
+```
+
+---
+
+# 29. LLM Role in Discipline Monitoring
+
+The detector identifies the event.
+
+The LLM explains it.
+
+Input:
+
+```text
+POSSIBLE_REVENGE_TRADE
+
+last_trade:
+loss -0.48%
+
+time_since_close:
+4m 12s
+
+new_trade:
+same symbol
+same direction
+
+risk:
+1.02%
+
+user normal risk:
+0.5%
+```
+
+Possible assistant response:
+
+> Quick check before you continue.
+>
+> You were stopped on XAUUSD four minutes ago and have just re-entered in the same direction at roughly twice your normal risk.
+>
+> I can't know whether you're trading emotionally, but this matches the loss-chasing behaviour you asked me to flag.
+>
+> Was this second entry part of the original plan?
+
+This is vastly better than:
+
+> You are revenge trading.
+
+---
+
+# 30. Proactive Communication Engine
+
+Not every event should become a Telegram message.
+
+Otherwise the product becomes unbearable.
+
+Every event receives:
+
+```text
+severity
+relevance
+confidence
+cooldown
+deduplication key
+```
+
+Example:
+
+```text
+CRITICAL
+ACTIONABLE
+INFORMATIONAL
+BACKGROUND
+```
+
+Only:
+
+```text
+CRITICAL
+ACTIONABLE
+selected INFORMATIONAL
+```
+
+generate notifications.
+
+---
+
+# 31. Notification Budget
+
+Each user should have a configurable attention budget.
+
+Example:
+
+```text
+Pattern alerts: ON
+Discipline alerts: ON
+Calendar reminders: IMPORTANT ONLY
+Daily brief: ON
+Weekly review: ON
+
+Maximum non-critical proactive alerts/day: 8
+```
+
+The assistant should feel observant, not neurotic.
+
+---
+
+# 32. Daily Brief
+
+Example:
+
+> **Morning trading brief**
+>
+> XAUUSD: no active tested setup.
+>
+> EURUSD: Pattern MZ-04 is approaching confirmation. Historical sample: 286 cases.
+>
+> US CPI: 13:30 London time.
+>
+> ES options expiry: today.
+>
+> You currently have no open positions.
+>
+> Your challenge has 2.3% daily loss capacity remaining.
+
+This can largely be assembled deterministically.
+
+LLM only performs final summarisation.
+
+---
+
+# 33. Backtest Report Retrieval
+
+User:
+
+> Show me the backtest behind that signal.
+
+Agent calls:
+
+```text
+backtests.get_report(pattern_version)
+```
+
+Returns:
+
+```text
+summary
+metrics
+chart URLs
+report artifact
+```
+
+Assistant responds with the existing report.
+
+It must **never initiate a new backtest**.
+
+---
+
+# 34. Subscription Architecture
+
+Entities:
+
+```text
+User
+StripeCustomer
+Subscription
+Plan
+Entitlement
+AccountSlot
+Usage
+```
+
+Example:
+
+```text
+Subscription:
+ACTIVE
+
+Plan:
+TRADER
+
+Entitlements:
+assistant_chat = true
+pattern_alerts = true
+discipline_monitor = true
+connected_accounts = 1
+```
+
+---
+
+# 35. Recommended Initial Monetisation
+
+Avoid building five plans before product-market fit.
+
+Start with one core subscription.
+
+## Trading Assistant
+
+**Target hypothesis: £39-49/month**
+
+Includes:
+
+* AI assistant;
+* one connected MT5 account;
+* proprietary pattern monitoring;
+* backtest reports;
+* market calendar;
+* discipline monitoring;
+* daily brief.
+
+Then charge separately for additional connected accounts.
+
+Example:
+
+**Additional MT5 account: £10-15/month**
+
+This is strategically useful because **account count creates infrastructure cost**, while Telegram conversations alone do not.
+
+---
+
+# 36. Founding User Offer
+
+Possible initial acquisition model:
+
+```text
+Founding 100
+£29/month
+1 MT5 account
+price locked while subscription remains active
+```
+
+This creates:
+
+* urgency;
+* early feedback cohort;
+* identifiable first community.
+
+Do not permanently discount the standard product.
+
+---
+
+# 37. Annual Subscription
+
+Later:
+
+```text
+Monthly:
+£49
+
+Annual:
+£490
+```
+
+Equivalent to two months free.
+
+At 1,000 users and £39 average base subscription, base MRR would be roughly:
+
+```text
+£39,000/month
+```
+
+before additional account slots.
+
+This is a pricing hypothesis, not a revenue forecast.
+
+---
+
+# 38. Payment Lifecycle
+
+### Successful payment
+
+```text
+Stripe webhook
+→ subscription ACTIVE
+→ entitlements ON
+→ Telegram remains active
+→ MT5 monitoring ON
+```
+
+Stripe recommends using subscription lifecycle webhooks for provisioning and status changes rather than trusting a browser redirect alone.
+
+### Payment failure
+
+```text
+PAST_DUE
+→ user notification
+→ grace period
+→ monitoring suspended
+```
+
+### Cancellation
+
+Access remains until:
+
+```text
+current_period_end
+```
+
+Then:
+
+```text
+assistant disabled
+monitoring disabled
+credentials revoked/deleted according to retention policy
+```
+
+Customer Portal handles:
+
+* cards;
+* invoices;
+* cancellation;
+* subscription management.
+
+---
+
+# 39. Token Cost Architecture
+
+This deserves explicit design attention.
+
+The biggest mistake would be:
+
+```text
+1,000 users
+×
+market monitoring
+×
+LLM
+```
+
+Instead:
+
+```text
+market monitoring
+×
+ONE deterministic engine
+```
+
+Then only meaningful events become LLM calls.
+
+---
+
+# 40. Token Optimisation Rule #1
+
+### Never send raw market streams to Claude.
+
+Bad:
+
+```text
+1000 ticks
+→ Claude
+```
+
+Good:
+
+```text
+1000 ticks
+→ code
+→ pattern detected
+→ 1 event
+→ Claude
+```
+
+---
+
+# 41. Token Optimisation Rule #2
+
+### Retrieve only relevant backtests.
+
+Do not put:
+
+```text
+ALL BACKTESTS
+```
+
+into the system prompt.
+
+Instead:
+
+```text
+User asks question
+      ↓
+retrieve candidate patterns
+      ↓
+2 relevant backtests
+      ↓
+Claude
+```
+
+---
+
+# 42. Token Optimisation Rule #3
+
+### Shared information is generated once.
+
+Examples:
+
+* today's economic calendar;
+* futures expiry;
+* XAUUSD pattern event;
+* bank holiday;
+* quarter-end warning.
+
+Generate:
+
+```text
+GlobalEvent
+```
+
+once.
+
+Personalise only when necessary.
+
+---
+
+# 43. Token Optimisation Rule #4
+
+### Prompt caching
+
+System instructions and stable tool descriptions should be cacheable.
+
+Anthropic currently supports automatic and explicit prompt caching, with cache hits billed at 10% of normal input-token cost.
+
+Stable cached context:
+
+```text
+system prompt
+behavioural policy
+tool definitions
+skill instructions
+```
+
+Dynamic context:
+
+```text
+user
+account
+event
+retrieved memories
+```
+
+---
+
+# 44. Token Optimisation Rule #5
+
+### Conversation compaction
+
+Example:
+
+After conversation becomes large:
+
+```text
+150 messages
+↓
+summary
+↓
+2,000 tokens
+```
+
+Keep:
+
+```text
+summary
++
+last N messages
++
+relevant retrieved memories
+```
+
+instead of the entire history.
+
+---
+
+# 45. Token Optimisation Rule #6
+
+### Model routing
+
+Do not ask Sonnet/Opus to decide:
+
+> Is today December 31?
+
+Code can do that.
+
+Do not ask an expensive model to convert:
+
+```text
+severity=HIGH
+```
+
+into a fixed notification if a template is sufficient.
+
+---
+
+# 46. Rough LLM Cost Example
+
+Illustratively:
+
+```text
+1,000 users
+10 LLM-generated proactive messages/day
+30 days
+
+= 300,000 generations/month
+```
+
+If an average Sonnet generation used approximately:
+
+```text
+1,000 billable input tokens
+250 output tokens
+```
+
+then using Anthropic's current $2 input / $10 output per million Sonnet 5 tokens would imply approximately:
+
+```text
+Input:
+300M × $2/M = $600
+
+Output:
+75M × $10/M = $750
+
+Total:
+≈ $1,350/month
+```
+
+excluding interactive chat and other infrastructure. Current model pricing is documented by Anthropic.
+
+If the architecture accidentally sends 5-10x more context with every request, that number expands correspondingly.
+
+Hence **context engineering matters almost as much as model choice**.
+
+---
+
+# 47. Security Requirements
+
+This product holds sensitive financial-account information.
+
+Mandatory requirements:
+
+## Credentials
+
+MT5 Investor Password:
+
+* encrypted at rest;
+* encrypted in transit;
+* stored only in Secrets Manager;
+* never placed in PostgreSQL plaintext;
+* never sent to Claude;
+* never logged;
+* never returned by APIs;
+* never visible to support personnel by default.
+
+The LLM receives only:
+
+```text
+account_id
+```
+
+not credentials.
+
+---
+
+# 48. Tenant Isolation
+
+Every persistent object must contain:
+
+```text
+tenant_id / user_id
+```
+
+and authorization must be enforced server-side.
+
+Critical tests must attempt:
+
+```text
+User A → retrieve User B memory
+User A → retrieve User B positions
+User A → retrieve User B backtests marked private
+```
+
+Expected result:
+
+```text
+DENIED
+```
+
+No cross-user leakage is acceptable.
+
+---
+
+# 49. Tool Security
+
+LLM tools must use allowlists.
+
+Assistant cannot arbitrarily:
+
+* run shell commands;
+* query unrestricted SQL;
+* access filesystem;
+* browse user secrets;
+* call arbitrary URLs.
+
+This is another reason not to expose a general-purpose autonomous OpenClaw installation directly to 1,000 unrelated customers.
+
+---
+
+# 50. Core Database Model
+
+Initial entities:
+
+```text
+users
+
+telegram_identities
+
+subscriptions
+plans
+entitlements
+
+trading_accounts
+mt5_connections
+
+instruments
+market_data
+
+patterns
+pattern_versions
+backtest_runs
+backtest_metrics
+backtest_reports
+
+pattern_events
+
+trades
+positions
+account_snapshots
+
+risk_profiles
+discipline_rules
+discipline_events
+
+calendar_events
+
+skills
+skill_versions
+
+user_preferences
+user_memories
+conversation_summaries
+
+notifications
+
+agent_runs
+tool_calls
+
+audit_log
+```
+
+---
+
+# 51. Event Bus
+
+Canonical events:
+
+```text
+ACCOUNT_CONNECTED
+ACCOUNT_DISCONNECTED
+
+POSITION_OPENED
+POSITION_MODIFIED
+POSITION_CLOSED
+
+TRADE_LOSS
+TRADE_WIN
+
+RISK_LIMIT_APPROACHING
+RISK_LIMIT_EXCEEDED
+
+PATTERN_APPROACHING
+PATTERN_CONFIRMED
+PATTERN_INVALIDATED
+
+REVENGE_PATTERN_DETECTED
+OVERTRADING_DETECTED
+STOP_WIDENING_DETECTED
+
+MACRO_EVENT_UPCOMING
+OPTIONS_EXPIRY_UPCOMING
+BANK_HOLIDAY_UPCOMING
+
+DAY_STARTED
+DAY_ENDED
+WEEK_ENDED
+```
+
+Every event should be immutable and auditable.
+
+---
+
+# 52. Observability
+
+Admin dashboard must eventually show:
+
+```text
+Connected MT5 accounts
+Disconnected accounts
+
+Events/minute
+Alerts/minute
+
+LLM calls
+Token usage
+Token cost
+
+Cost/user
+Cost/plan
+
+Telegram delivery failures
+
+Pattern detector status
+
+Average response latency
+
+MT5 reconnect rate
+```
+
+Most importantly:
+
+```text
+LLM cost per paying user
+```
+
+should be available from the beginning.
+
+---
+
+# 53. AI Audit Trail
+
+Every LLM interaction should record:
+
+```text
+agent_run_id
+user_id
+model
+prompt_version
+skill_versions
+tools_called
+backtest_ids_used
+input tokens
+output tokens
+cost
+response
+timestamp
+```
+
+This allows reproduction of problematic behaviour.
+
+---
+
+# 54. User #1 MVP
+
+The first implementation should contain **only enough infrastructure to make the founder a genuine daily user**.
+
+Required:
+
+### Telegram
+
+One Telegram assistant.
+
+### LLM
+
+Claude.
+
+### MT5
+
+One founder MT5 account using investor credentials.
+
+### Backtests
+
+Import existing backtests into Backtest KB.
+
+### Pattern
+
+At least one live pattern detector.
+
+### Risk
+
+At least:
+
+```text
+risk escalation
+overtrading
+loss chasing
+```
+
+### Calendar
+
+At least:
+
+```text
+major macro calendar
+holidays
+month/quarter/year end
+expiry calendar
+```
+
+### Proactivity
+
+Morning brief.
+
+Pattern alert.
+
+Discipline alert.
+
+### Memory
+
+Trader profile.
+
+Trading rules.
+
+Conversation summaries.
+
+### Reports
+
+Retrieve pre-existing backtest report.
+
+No billing is required to prove the founder-alpha product.
+
+The founder can simply be manually marked:
+
+```text
+subscription = INTERNAL
+```
+
+---
+
+# 55. Paid Alpha
+
+Next milestone introduces:
+
+```text
+Website
+Authentication
+Stripe
+Telegram pairing
+Secure MT5 onboarding
+Tenant isolation
+Entitlements
+10-50 users
+```
+
+At this point the product becomes a real SaaS.
+
+---
+
+# 56. Scaling Milestone
+
+Before larger acquisition:
+
+```text
+multiple MT5 connector workers
+job queue
+event deduplication
+rate limiting
+LLM cost tracking
+central monitoring
+automatic reconnect
+backup/recovery
+```
+
+---
+
+# 57. 1,000 User Architecture
+
+At approximately 1,000 customers the conceptual deployment becomes:
+
+```text
+                         Web
+                          │
+                     API Gateway
+                          │
+              ┌───────────┴──────────┐
+              │                      │
+         Core API              Telegram Adapter
+              │                      │
+              └───────────┬──────────┘
+                          │
+                    Event / Job Queue
+                          │
+        ┌─────────────────┼───────────────────┐
+        │                 │                   │
+ Pattern Workers     Agent Workers      Notification
+        │                 │                   │
+        │              Claude API             │
+        │                                     │
+        └────────────────┬────────────────────┘
+                         │
+                    PostgreSQL
+                         │
+                         │
+                   Redis / Cache
+
+Separate infrastructure:
+
+               Connector Scheduler
+                        │
+           ┌────────────┼────────────┐
+           ▼            ▼            ▼
+       MT5 Node      MT5 Node      MT5 Node
+       Windows       Windows       Windows
+```
+
+Horizontal scaling applies mainly to:
+
+* agent workers;
+* pattern workers;
+* Telegram delivery;
+* MT5 connectors.
+
+The core API can remain comparatively simple.
+
+---
+
+# 58. What Must NOT Scale Per User
+
+Do not create per-user copies of:
+
+```text
+market data
+economic calendar
+pattern detectors
+backtest database
+market-event monitoring
+```
+
+Those are shared.
+
+Scale per user only:
+
+```text
+MT5 connection
+account state
+personal memory
+discipline rules
+conversation
+notifications
+```
+
+This distinction is essential to product economics.
+
+---
+
+# 59. Admin Capabilities
+
+Internal admin interface should eventually support:
+
+### User
+
+View subscription.
+
+View connected accounts.
+
+Disable account.
+
+Disable user.
+
+### Backtests
+
+Upload.
+
+Version.
+
+Publish.
+
+Archive.
+
+### Patterns
+
+Enable/disable detector.
+
+Deploy version.
+
+### Skills
+
+Enable.
+
+Disable.
+
+Feature flag.
+
+### Agent
+
+Change prompt version.
+
+Select model.
+
+Set token limits.
+
+### Monitoring
+
+Inspect agent run.
+
+Inspect event.
+
+Inspect tool invocation.
+
+Replay event.
+
+---
+
+# 60. Replay System
+
+Every real event should be replayable in staging.
+
+Example:
+
+```text
+17 Aug 2026
+XAUUSD
+User opens 4th trade after 3 losses
+```
+
+Replay:
+
+```text
+stored events
+→ discipline engine
+→ agent
+→ expected notification
+```
+
+This becomes the primary testing mechanism for agent behaviour.
+
+---
+
+# 61. Testing Strategy
+
+## Deterministic tests
+
+Pattern detectors.
+
+Risk calculations.
+
+Account calculations.
+
+Subscription entitlements.
+
+Calendar rules.
+
+---
+
+## Integration tests
+
+MT5 login.
+
+Disconnect.
+
+Reconnect.
+
+Telegram pairing.
+
+Stripe webhook.
+
+Backtest retrieval.
+
+---
+
+## AI evals
+
+Create a permanent dataset such as:
+
+```text
+500 representative situations
+```
+
+Expected properties:
+
+```text
+Did assistant cite correct backtest?
+Did it invent statistics?
+Did it overstate certainty?
+Did it identify correct risk breach?
+Did it avoid false emotional diagnosis?
+Did it call correct tools?
+```
+
+Model upgrades must run against this dataset before deployment.
+
+---
+
+# 62. Product Metrics
+
+Track:
+
+## Activation
+
+```text
+registered
+→ paid
+→ Telegram connected
+→ MT5 connected
+```
+
+## Engagement
+
+```text
+DAU
+messages/user
+alerts opened
+backtest reports requested
+```
+
+## Trading engagement
+
+```text
+active trading days
+patterns observed
+discipline alerts
+```
+
+## Business
+
+```text
+MRR
+ARPU
+churn
+trial-to-paid
+account slots/user
+```
+
+## AI economics
+
+```text
+LLM cost/user
+LLM cost/active user
+tokens/message
+tokens/proactive alert
+```
+
+---
+
+# 63. Important Product Constraint
+
+The assistant must not become a **signal-selling bot with better prose**.
+
+Its identity should consistently remain:
+
+> A trading decision-support system grounded in historical evidence and the trader's own rules.
+
+That means it should often say:
+
+> Nothing worth doing right now.
+
+Or:
+
+> We do not have enough evidence for this scenario.
+
+Or:
+
+> This setup does not match any pattern currently present in our validated database.
+
+Those responses are features, not failures.
+
+---
+
+# 64. Recommended Repository Structure
+
+```text
+/apps
+    /web
+    /api
+    /telegram
+    /worker
+
+/services
+    /mt5-connector
+    /pattern-engine
+    /event-engine
+
+/core
+    /agent
+    /billing
+    /backtests
+    /risk
+    /memory
+    /notifications
+
+/skills
+    /pattern-alert
+    /daily-brief
+    /expiry
+    /holidays
+    /risk-guard
+    /revenge-trading
+    /overtrading
+
+/prompts
+    /system
+    /discipline
+    /backtest
+    /briefs
+
+/tests
+    /unit
+    /integration
+    /replays
+    /agent-evals
+
+/infra
+```
+
+---
+
+# 65. Recommended Build Order
+
+The engineer should implement in this sequence:
+
+```text
+1. Domain model
+        ↓
+2. Telegram bot
+        ↓
+3. Claude conversation
+        ↓
+4. MT5 read-only connector
+        ↓
+5. Account event stream
+        ↓
+6. Backtest KB
+        ↓
+7. One Pattern Detector
+        ↓
+8. Event Engine
+        ↓
+9. Proactive Telegram alerts
+        ↓
+10. Discipline Engine
+        ↓
+11. Calendar Skills
+        ↓
+12. Memory
+        ↓
+13. Website/Auth
+        ↓
+14. Stripe
+        ↓
+15. Multi-user isolation
+        ↓
+16. Connector fleet
+        ↓
+17. Scale/observability
+```
+
+Do not begin with:
+
+```text
+beautiful website
+complex billing
+20 skills
+full admin panel
+1000-user Kubernetes cluster
+```
+
+before User #1 actually wants to use the assistant every trading day.
+
+---
+
+# 66. Definition of Success for User #1
+
+The first product milestone is achieved when the following scenario works end-to-end:
+
+### Morning
+
+Assistant spontaneously sends:
+
+> Good morning.
+>
+> CPI is at 13:30 London time.
+>
+> XAUUSD has no confirmed backtested setup currently.
+>
+> Your FTMO challenge is connected and has no open positions.
+
+### During trading
+
+A proprietary pattern appears.
+
+Assistant sends:
+
+> XAUUSD has just confirmed Pattern MZ-04 on H4.
+>
+> Historical dataset: 438 occurrences.
+>
+> Historical expectancy under the tested conditions: +0.21R.
+>
+> Want the full backtest?
+
+### User
+
+> Yes.
+
+Assistant retrieves the **existing** backtest report.
+
+### Later
+
+User loses two trades and immediately doubles risk.
+
+Assistant sends:
+
+> Quick check.
+>
+> Your last two trades were losses and the new position is approximately twice your normal risk.
+>
+> This matches the loss-escalation behaviour you've asked me to flag.
+>
+> Is the increased risk part of the original trading plan?
+
+### Evening
+
+Assistant sends:
+
+> Today:
+>
+> 4 trades
+> -1.3R
+> 1 discipline alert
+> 1 valid pattern traded
+>
+> Your largest deviation was increasing risk after the second loss.
+>
+> Want to review the sequence?
+
+If this experience is genuinely useful to User #1, the system has the nucleus of the product.
+
+---
+
+# 67. Final Architectural Position
+
+The product should be thought of as five layers:
+
+```text
+┌─────────────────────────────────────┐
+│ 5. EXPERIENCE                       │
+│ Telegram / Web                      │
+├─────────────────────────────────────┤
+│ 4. INTELLIGENCE                     │
+│ Claude + Agent + Memory             │
+├─────────────────────────────────────┤
+│ 3. DECISION SUPPORT                 │
+│ Patterns / Risk / Skills / Events   │
+├─────────────────────────────────────┤
+│ 2. PROPRIETARY KNOWLEDGE            │
+│ Backtests / Trading methodology     │
+├─────────────────────────────────────┤
+│ 1. DATA                             │
+│ MT5 / Market data / Calendar        │
+└─────────────────────────────────────┘
+```
+
+The moat should primarily develop in Layers **2 and 3**.
+
+The LLM itself will continuously become cheaper and more commoditised.
+
+Telegram is replaceable.
+
+Stripe is replaceable.
+
+Even the agent framework is replaceable.
+
+What becomes difficult for a competitor to reproduce is:
+
+```text
+years of structured backtests
++
+live pattern definitions
++
+discipline models
++
+trading-event logic
++
+user behavioural history
++
+data connecting real trader behaviour to tested scenarios
+```
+
+That is therefore where the architecture should concentrate proprietary value.
+
+The AI is the interface to that intelligence, not the intelligence itself.
+

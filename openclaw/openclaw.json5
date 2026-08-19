@@ -1,0 +1,78 @@
+// Versioned copy of the OpenClaw gateway config.
+// Installed to ~/.openclaw/openclaw.json by scripts/install-config.sh
+//
+// NOTHING SECRET GOES IN THIS FILE. The bot token and Anthropic key are read
+// from the environment (see .env.example) — spec.txt §47.
+//
+// Schema verified against OpenClaw 2026.7.1-2 via `openclaw config schema`.
+
+{
+  channels: {
+    telegram: {
+      enabled: true,
+
+      // "pairing": an unknown DM must be approved by the operator before the
+      // agent will answer. Phase 2 automates the approval side against our own
+      // pairing tokens. Never relax this to "open" — that lets any Telegram
+      // account on earth talk to the agent and spend our tokens.
+      dmPolicy: "pairing",
+
+      // DM-only POC. No group support.
+      groups: {},
+    },
+  },
+
+  agents: {
+    list: [
+      {
+        id: "trading-assistant",
+        name: "Trading Assistant",
+        default: true,
+        workspace: "~/.openclaw/workspace-trading",
+
+        identity: {
+          name: "Trading Assistant",
+          emoji: "📈",
+        },
+
+        // spec.txt §8: Sonnet is the normal brain; the expensive model is the
+        // exception, not the default. Id verified against `openclaw models list`.
+        model: "anthropic/claude-sonnet-5",
+
+        // spec.txt §49: the assistant must not run shell commands, touch the
+        // filesystem, or browse arbitrary URLs. OpenClaw ships these enabled,
+        // so they are denied here BEFORE the bot is reachable from Telegram.
+        //
+        // Profile "messaging" rather than "minimal" because MCP tools are only
+        // surfaced in the coding/messaging profiles, and Phase 4 adds our
+        // mt5.* / backtests.* MCP server.
+        tools: {
+          profile: "messaging",
+          deny: [
+            "exec",
+            "process",
+            "write",
+            "edit",
+            "apply_patch",
+            "browser",
+            "sessions_spawn",
+            "subagents",
+          ],
+        },
+
+        sandbox: {
+          mode: "off",
+          workspaceAccess: "none",
+        },
+
+        // Semantic recall defaults to an OpenAI embedding provider. We have no
+        // OpenAI key and do not want that dependency: spec.txt §27 wants
+        // structured truth in SQL anyway, and vector recall only for long-form
+        // notes. Revisit in the memory phase, on a provider we control.
+        memorySearch: {
+          enabled: false,
+        },
+      },
+    ],
+  },
+}
