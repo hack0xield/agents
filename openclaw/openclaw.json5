@@ -66,6 +66,23 @@
   // by anyone in commands.ownerAllowFrom, which is fine while that list is one
   // founder and must be revisited before anyone else connects.
   // ─────────────────────────────────────────────────────────────────────
+  // Disabled: browser, canvas, phone-control, talk-voice.
+  //
+  // Measured as costing zero context — the tool policy already stripped their
+  // tools — so this is not a token optimisation. It is surface reduction: a
+  // customer-facing trading bot has no business shipping with browser
+  // automation and phone control loaded, even behind a deny list.
+  //
+  // Gateway plugin count went 9 -> 5.
+  plugins: {
+    entries: {
+      browser: { enabled: false },
+      canvas: { enabled: false },
+      "phone-control": { enabled: false },
+      "talk-voice": { enabled: false },
+    },
+  },
+
   commands: {
     native: false,
     nativeSkills: false,
@@ -177,7 +194,15 @@
         // surfaced in the coding/messaging profiles, and Phase 4 adds our
         // mt5.* / backtests.* MCP server.
         tools: {
-          profile: "messaging",
+          // "minimal", not "messaging". Measured: 37,841 -> 33,893 tokens per
+          // session, ~4k saved on every turn.
+          //
+          // The docs say MCP tools surface only in the coding/messaging
+          // profiles. That is not true of this version — verified by calling
+          // backtests.search under minimal and getting real data back. The
+          // profile drops session-spawn, subagent and cross-session messaging
+          // tools, none of which a single-user trading assistant uses.
+          profile: "minimal",
           deny: [
             "exec",
             "process",

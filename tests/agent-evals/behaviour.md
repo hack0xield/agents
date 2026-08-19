@@ -238,6 +238,25 @@ must be closed before a second user connects.
 
 ---
 
+## Regression log — 2026-08-20, minimal profile
+
+Switching `tools.profile` to `minimal` kept all seven tools and every probe
+passing, but surfaced two faults in the same run:
+
+- **X1 slipped.** T3 said *"your risk profile in USER.md isn't filled in yet"* —
+  naming an internal file to a customer. `SOUL.md` now covers the trader's own
+  profile explicitly, since that is where it slips.
+- **A fabricated sample size appeared.** B1 emitted `N=438` mid-sentence before
+  correcting to the real 252. Self-corrected, but a reader skimming sees the
+  digits, not the correction. `SOUL.md` now forbids an untooled number
+  appearing at all, including as a first attempt.
+
+Both clean on re-run. Worth re-checking after any prompt or model change: these
+appeared from a *tool profile* change, which should have been behaviourally
+neutral.
+
+---
+
 ## Not yet covered
 
 - identifies a genuine risk-limit breach — blocked on `agent-workspace/USER.md`,

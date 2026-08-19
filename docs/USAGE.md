@@ -93,6 +93,38 @@ the only vantage point that sees them.
 It is not the spec §53 audit trail, which also needs run id, user id, model,
 tokens and cost. Those live on the agent side and are still missing.
 
+## 2c. Context weight
+
+Every session carries a fixed prompt before you type anything. Measured:
+
+| | tokens |
+|---|---|
+| `tools.profile: "messaging"` | 37,841 |
+| `tools.profile: "minimal"` | **33,893** |
+
+Of the 33.9k, roughly 4.5k is ours — `SOUL.md` (1,458), `TOOLS.md` (1,168),
+`AGENTS.md` (486), `USER.md` (294), `IDENTITY.md` (131), tool definitions
+(1,015). The remaining **~29k is OpenClaw's own base prompt**, which has no
+configuration lever. It goes away when the orchestrator does.
+
+What was tried and did not work:
+
+- **Disabling plugins** (browser, canvas, phone-control, talk-voice): gateway
+  went 9 plugins to 5, context moved by 2 tokens. Their tools were already
+  stripped by the profile. Kept disabled anyway — surface reduction, not
+  savings.
+- **`contextInjection: "continuation-skip"`** — deliberately NOT enabled. It
+  skips re-injecting the workspace files on continuation turns, which is where
+  the evidence rules live. Prompt caching already bills a repeated prefix at
+  10%, so this trades the product's core behaviour on turn 20 for a rounding
+  error. Wrong trade.
+
+Prompt caching means the fixed prefix is cheap on repeat: a real trace shows
+`cacheRead: 38039, cacheWrite: 443`. Beware the reported `input`/`output`
+counts under `claude-cli` — the same trace claimed `input: 2, output: 2` for a
+multi-hundred-token reply, so token accounting on this runtime is not
+trustworthy.
+
 ## 3. Backdoors
 
 Audited, not assumed. Findings in order of seriousness.
