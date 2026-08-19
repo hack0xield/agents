@@ -115,8 +115,11 @@ def _bundle_bytes(run_id: str) -> bytes | None:
     import io
     import zipfile
 
-    root = runs.RUNS_DIR.resolve()
-    target = (runs.RUNS_DIR / run_id).resolve()
+    base = runs.run_root_for(run_id)
+    if base is None:
+        return None
+    root = base.resolve()
+    target = (base / run_id).resolve()
     if not target.is_dir() or root not in target.parents:
         return None
     buf = io.BytesIO()
@@ -266,7 +269,8 @@ def backtests_get_report(pattern_id: str, version: int | None = None) -> dict:
     if r is None:
         return {"found": False, "pattern_id": pattern_id, "version": version}
     run_id = r["backtest_run_id"]
-    files = sorted(f.name for f in (runs.RUNS_DIR / run_id).iterdir() if f.is_file())
+    root = runs.run_root_for(run_id) or runs.RUNS_DIR
+    files = sorted(f.name for f in (root / run_id).iterdir() if f.is_file())
     return {
         "found": True,
         "pattern_id": r["pattern_id"],
@@ -668,51 +672,68 @@ if __name__ == "__main__":
     import zipfile
 
     import uvicorn
-    from starlette.responses import PlainTextResponse, Response
+    from starlette.responses import FileResponse, PlainTextResponse, Response
     from starlette.routing import Route
-    from starlette.staticfiles import StaticFiles
 
     # Serve the stored report artifacts (charts, summaries) alongside the tool
     # endpoint, so `chart_url` resolves to something a browser on this machine
     # can actually open. Spec §5 puts these in object storage; this is the POC
     # stand-in for that, and deliberately loopback-only.
     app = mcp.streamable_http_app()
-    # NOT `runs`: that name is the imported module, and rebinding it here
-    # silently turns every backtests.* tool into an AttributeError at
-    # request time. Only the real server executes this block, so the
-    # in-process tests could not see it.
-    runs_dir = runs.RUNS_DIR
+    # Do not bind a local named `runs` in this block: that name is the
+    # imported module, and shadowing it turns every backtests.* tool into an
+    # AttributeError at request time. Only the real server executes this
+    # block, so in-process tests cannot see that class of fault.
+    def _resolve(run_id: str, rel: str | None = None):
+        """Locate a run's directory, or a file inside it, across both roots.
 
-    if runs_dir.is_dir():
-        app.mount("/artifacts", StaticFiles(directory=runs_dir), name="artifacts")
+        Paths arrive from URLs, so the result is resolved and confirmed to sit
+        under the root that owns the run before anything is read — otherwise
+        ".." walks out and this process serves the user's home directory.
+        """
+        base = runs.run_root_for(run_id)
+        if base is None:
+            return None
+        root = base.resolve()
+        target = (base / run_id).resolve()
+        if not target.is_dir() or root not in target.parents:
+            return None
+        if rel is None:
+            return target
+        f = (target / rel).resolve()
+        if not f.is_file() or target not in f.parents:
+            return None
+        return f
 
-        async def bundle(request):
-            """Zip a whole run directory on request.
+    async def artifact(request):
+        f = _resolve(request.path_params["run_id"], request.path_params["path"])
+        if f is None:
+            return PlainTextResponse("not found", status_code=404)
+        return FileResponse(f)
 
-            Built in memory and thrown away: these are small, and a cache is a
-            staleness bug waiting to happen when a run is regenerated.
-            """
-            run_id = request.path_params["run_id"]
-            # The run id comes from a URL. Resolve it and confirm it stays
-            # inside runs/ before reading anything — otherwise ".." walks the
-            # filesystem, and this process can read the user's home.
-            target = (runs_dir / run_id).resolve()
-            if not target.is_dir() or runs_dir.resolve() not in target.parents:
-                return PlainTextResponse("no such run", status_code=404)
+    async def bundle(request):
+        """Zip a whole run directory on request.
 
-            blob = _bundle_bytes(run_id)
-            if blob is None:
-                return PlainTextResponse("no such run", status_code=404)
-            return Response(
-                blob,
-                media_type="application/zip",
-                headers={
-                    "content-disposition": f'attachment; filename="{run_id}.zip"'
-                },
-            )
+        Built in memory and thrown away: these are small, and a cache is a
+        staleness bug waiting to happen when a run is regenerated.
+        """
+        run_id = request.path_params["run_id"]
+        blob = _bundle_bytes(run_id)
+        if blob is None:
+            return PlainTextResponse("no such run", status_code=404)
+        return Response(
+            blob,
+            media_type="application/zip",
+            headers={"content-disposition": f'attachment; filename="{run_id}.zip"'},
+        )
 
+    if runs.RUNS_DIR.is_dir() or runs.ADHOC_DIR.is_dir():
+        # Served through one URL space regardless of which directory holds the
+        # run. Two URL shapes would leak an internal filing decision into
+        # links people paste to each other.
+        app.router.routes.append(Route("/artifacts/{run_id}/{path:path}", artifact))
         app.router.routes.append(Route("/bundle/{run_id}.zip", bundle))
     else:
-        print(f"warning: {runs_dir} not found — artifact URLs will 404")
+        print(f"warning: no run directories found — artifact URLs will 404")
 
     uvicorn.run(app, host=HOST, port=PORT)

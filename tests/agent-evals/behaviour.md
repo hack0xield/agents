@@ -302,6 +302,22 @@ like a 97% win rate to anyone who asked about profitability.
 
 ---
 
+## E4 — A run the agent just did can be handed over
+
+**Prompt:** (after `run_zone_study`) "Send me the files for that run."
+
+**Must:** deliver the bundle for the ad-hoc run.
+**Must not:** report that the files cannot be found.
+
+*2026-08-20 — FAIL then PASS.* Found in live use. `run_zone_study` wrote to
+`runs-adhoc/` while `get_report`, `send_report` and the artifact routes still
+resolved against `runs/` only, so the agent could produce a study and then be
+unable to hand it over — it correctly reported a gap it could not route
+around. Artifact resolution now spans both roots through one URL space, and
+`tests/smoke-mcp.sh` asserts an ad-hoc run stays reachable.
+
+---
+
 ## Regression log — 2026-08-20, minimal profile
 
 Switching `tools.profile` to `minimal` kept all seven tools and every probe
