@@ -7,6 +7,26 @@
 // Schema verified against OpenClaw 2026.7.1-2 via `openclaw config schema`.
 
 {
+  // `openclaw onboard` normally writes this. We hand-write the config instead,
+  // and the gateway refuses to start without gateway.mode — it treats a config
+  // missing it as possibly clobbered. Verified via `openclaw config schema`.
+  gateway: {
+    mode: "local",      // channels + agent runtime run on this host
+    bind: "loopback",   // POC: do not expose the control plane to the LAN
+
+    // NOTE: this does NOT keep other local processes out. OpenClaw auto-approves
+    // device pairing for direct loopback connects, so anything running as this
+    // user can drive the gateway regardless of the token — verified: the CLI
+    // works with OPENCLAW_GATEWAY_TOKEN unset. The token is what protects
+    // non-loopback clients, so it is set now and matters the moment `bind`
+    // stops being "loopback". Treat this box as the trust boundary until then.
+    // The token itself lives in .env, never in this file.
+    auth: {
+      mode: "token",
+      token: { source: "env", provider: "default", id: "OPENCLAW_GATEWAY_TOKEN" },
+    },
+  },
+
   channels: {
     telegram: {
       enabled: true,
@@ -23,6 +43,14 @@
   },
 
   agents: {
+    // Pinned at the defaults level as well as per-agent. Without this the
+    // runtime falls back to a built-in default (openai/gpt-5.5), which we have
+    // no key for and which contradicts spec.txt §8 — Sonnet is the normal
+    // brain. Any agent added later inherits Sonnet rather than OpenAI.
+    defaults: {
+      model: "anthropic/claude-sonnet-5",
+    },
+
     list: [
       {
         id: "trading-assistant",
