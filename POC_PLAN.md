@@ -186,6 +186,12 @@ returns nothing and the assistant says so plainly.
    the artifact that survives every later rewrite.
 3. **Cost visibility (§52)**: log model, tokens in/out and cost per turn into `agent_runs`.
    Cheap now, and "LLM cost per user" is required from the beginning.
+4. **Error surface**: OpenClaw forwards raw provider errors straight into the Telegram
+   chat — a billing failure reached the user as *"Your credit balance is too low to access
+   the Anthropic API"*. Acceptable while developing, wrong for a paying user. Replace with
+   a generic apology plus an internal alert before anyone but the founder is connected.
+   `channels.telegram` exposes `errorPolicy` / `silentErrorReplies`; leave them alone until
+   the eval set is green, because silencing errors during development hides real faults.
 
 **Gate:** tests green, eval set passing, one recorded end-to-end demo.
 
