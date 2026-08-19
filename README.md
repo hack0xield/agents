@@ -133,6 +133,11 @@ http://127.0.0.1:8081/bundle/<run_id>.zip
 Loopback only — they open on this machine, not from a phone. Spec §5 puts these
 in object storage, which is what makes them reachable anywhere.
 
+## Connecting real MT5
+
+See **[docs/MT5.md](docs/MT5.md)** — what per-user account access unlocks, and
+the write-tool problem to solve before wiring the existing connector in.
+
 ## Migrating off OpenClaw
 
 See **[docs/ORCHESTRATOR.md](docs/ORCHESTRATOR.md)** — what replaces the OpenClaw
