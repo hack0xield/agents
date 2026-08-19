@@ -163,6 +163,17 @@ own-orchestrator phase, where it is routing rather than a plugin.
 
 Both processes must be up first (MCP server, then gateway).
 
+**Smoke-test the tools first** — calls every tool against the running server:
+
+```bash
+./scripts/smoke-mcp.sh
+```
+
+Run this after any change to `mcp_server/`. Importing the module is not enough:
+a bug in the `__main__` block cannot be seen by an in-process test, and one
+shipped exactly that way — every `backtests.*` call failed on the live server
+while the import-level checks passed.
+
 **Automated probes** — replays the behavioural eval prompts and prints replies:
 
 ```bash

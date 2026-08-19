@@ -316,10 +316,14 @@ if __name__ == "__main__":
     # can actually open. Spec §5 puts these in object storage; this is the POC
     # stand-in for that, and deliberately loopback-only.
     app = mcp.streamable_http_app()
-    runs = Path(__file__).resolve().parent.parent.parent / "trading" / "runs"
+    # NOT `runs`: that name is the imported module, and rebinding it here
+    # silently turns every backtests.* tool into an AttributeError at
+    # request time. Only the real server executes this block, so the
+    # in-process tests could not see it.
+    runs_dir = runs.RUNS_DIR
 
-    if runs.is_dir():
-        app.mount("/artifacts", StaticFiles(directory=runs), name="artifacts")
+    if runs_dir.is_dir():
+        app.mount("/artifacts", StaticFiles(directory=runs_dir), name="artifacts")
 
         async def bundle(request):
             """Zip a whole run directory on request.
@@ -331,8 +335,8 @@ if __name__ == "__main__":
             # The run id comes from a URL. Resolve it and confirm it stays
             # inside runs/ before reading anything — otherwise ".." walks the
             # filesystem, and this process can read the user's home.
-            target = (runs / run_id).resolve()
-            if not target.is_dir() or runs.resolve() not in target.parents:
+            target = (runs_dir / run_id).resolve()
+            if not target.is_dir() or runs_dir.resolve() not in target.parents:
                 return PlainTextResponse("no such run", status_code=404)
 
             buf = io.BytesIO()
@@ -351,6 +355,6 @@ if __name__ == "__main__":
 
         app.router.routes.append(Route("/bundle/{run_id}.zip", bundle))
     else:
-        print(f"warning: {runs} not found — artifact URLs will 404")
+        print(f"warning: {runs_dir} not found — artifact URLs will 404")
 
     uvicorn.run(app, host=HOST, port=PORT)
