@@ -151,12 +151,37 @@ into your Telegram history.
 /compact   keep the session, summarise the history
 ```
 
+**Switching between sessions**
+
+There is one stored session per *key*, and a plain Telegram DM maps to one key
+(`agent:trading-assistant:main`). So a DM does not hold parallel conversations
+you can flip between — `/new` and `/reset` rotate the session id on that key in
+place. The previous id is kept only for usage accounting; it is not a
+conversation you can return to.
+
+To point the DM at a different session:
+
+```text
+/focus <session key | id | label>   bind this conversation to another session
+/unfocus                            remove the binding
+/name <title>                       label the current session, to /focus later
+/agents                             list thread-bound agents
+```
+
+`/focus` is what "switching" means here. In Telegram it binds a
+topic/conversation; in a 1:1 DM there is one conversation, so it repoints that
+DM rather than giving you tabs. Parallel sessions in a single chat need forum
+topics in a supergroup.
+
 **From the CLI**
 
 ```bash
-./scripts/oc sessions list            # what exists, age, token use
-./scripts/oc sessions cleanup         # store maintenance
+./scripts/oc sessions list --limit all   # keys, ids, age, token use
+./scripts/oc sessions cleanup            # store maintenance
 ```
+
+The store is `~/.openclaw/agents/trading-assistant/sessions/sessions.json`,
+keyed by session key. Working through `--session-key` never touches the DM.
 
 **Avoid polluting the chat** — give one-off CLI probes their own session:
 

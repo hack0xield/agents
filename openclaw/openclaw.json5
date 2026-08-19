@@ -158,6 +158,17 @@
         // above — the model itself is unchanged.
         model: "claude-cli/claude-sonnet-5",
 
+        // Empty allowlist = no bundled skills. Left unset, the agent inherits
+        // all 17 of OpenClaw's — meme-maker, github, healthcheck, notion,
+        // python-debugpy, weather — whose instructions then sit in the context
+        // of every session. That is spec.txt §41/§43 backwards: paying tokens
+        // on every turn to teach a trading assistant how to make memes.
+        //
+        // This agent's behaviour lives in agent-workspace/ (SOUL.md et al),
+        // not in a skill, so nothing here needs one. An explicit list replaces
+        // the inherited defaults entirely rather than merging with them.
+        skills: [],
+
         // spec.txt §49: the assistant must not run shell commands, touch the
         // filesystem, or browse arbitrary URLs. OpenClaw ships these enabled,
         // so they are denied here BEFORE the bot is reachable from Telegram.
