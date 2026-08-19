@@ -109,6 +109,27 @@ http://127.0.0.1:8081/bundle/<run_id>.zip
 Loopback only — they open on this machine, not from a phone. Spec §5 puts these
 in object storage, which is what makes them reachable anywhere.
 
+## Chat commands
+
+OpenClaw registers its whole operator command set with every channel by default.
+On this bot that was 65 slash commands, including `/export_session` — which
+writes out the complete system prompt — plus `/restart`, `/healthcheck`,
+`/github` and `/meme_maker`.
+
+`commands.native: false` clears the menu; text parsing stays on, so `/new`,
+`/reset` and `/compact` still work when typed. Verify after a gateway restart:
+
+```bash
+set -a; source .env; set +a
+curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getMyCommands" | python3 -m json.tool
+```
+
+Typing a *tool* name like `backtests.get_series` in chat is not a command — it
+is text to the model, which will answer conversationally. Deterministic
+command output (spec §45: do not spend a model on templated text) needs a real
+command surface, and in OpenClaw that means writing a plugin. Deferred to the
+own-orchestrator phase, where it is routing rather than a plugin.
+
 ## Testing
 
 Both processes must be up first (MCP server, then gateway).

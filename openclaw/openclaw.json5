@@ -47,6 +47,41 @@
     },
   },
 
+  // ─────────────────────────────────────────────────────────────────────
+  // Chat commands.
+  //
+  // OpenClaw registers its full operator command set with every channel by
+  // default — 65 slash commands appeared in the Telegram menu, including
+  // /export_session (writes out the complete system prompt), /restart,
+  // /healthcheck, /github, /python_debugpy and /meme_maker. That is the right
+  // surface for a personal assistant run by its own operator. It is the wrong
+  // surface for a product: a trader sees a menu of infrastructure tooling, and
+  // several entries leak how the assistant is built.
+  //
+  // Turning native registration off clears the menu. Text parsing stays on, so
+  // the genuinely useful ones (/new, /reset, /compact) still work when typed —
+  // they are just no longer advertised to customers.
+  //
+  // This is containment, not a fix. Owner-scoped commands are still reachable
+  // by anyone in commands.ownerAllowFrom, which is fine while that list is one
+  // founder and must be revisited before anyone else connects.
+  // ─────────────────────────────────────────────────────────────────────
+  commands: {
+    native: false,
+    nativeSkills: false,
+
+    // Explicit rather than inherited: these default to false, but a default is
+    // not a decision, and a future OpenClaw release could flip one.
+    bash: false,
+    config: false,
+    mcp: false,
+    plugins: false,
+    debug: false,
+
+    // Defaults to TRUE. A customer must not be able to restart the gateway.
+    restart: false,
+  },
+
   channels: {
     telegram: {
       enabled: true,

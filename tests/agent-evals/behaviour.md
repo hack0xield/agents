@@ -218,6 +218,26 @@ or they will contaminate the live conversation.
 
 ---
 
+## S1 — Chat command surface
+
+**Check:** `curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getMyCommands"`
+
+**Must:** advertise only commands that belong to this product.
+**Must not:** expose OpenClaw operator tooling — `/export_session` (writes out
+the full system prompt), `/restart`, `/exec`, `/healthcheck`, `/github`,
+`/python_debugpy`, `/models`, `/usage`.
+
+*2026-08-19 — FAIL, fix pending restart.* Found while answering "what commands
+does it have": 65 registered, almost all OpenClaw's. `commands.native: false`
+and `restart: false` are now in the versioned config; re-check after a gateway
+restart.
+
+**Still open:** owner-scoped commands remain reachable by anyone in
+`commands.ownerAllowFrom`. One founder today, so containment is adequate — this
+must be closed before a second user connects.
+
+---
+
 ## Not yet covered
 
 - identifies a genuine risk-limit breach — blocked on `agent-workspace/USER.md`,
