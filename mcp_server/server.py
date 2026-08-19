@@ -18,7 +18,10 @@ Run:  .venv/bin/python mcp_server/server.py
 
 from __future__ import annotations
 
+import functools
 import json
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +29,60 @@ from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
+CALL_LOG = Path(__file__).resolve().parent / "tool-calls.jsonl"
+
+
+def _log_call(tool: str, args: dict, result_summary: str) -> None:
+    """Append one line per tool call.
+
+    OpenClaw's trajectory export records zero tool events when running through
+    the claude-cli provider: that provider drives the tool loop itself, so the
+    gateway never observes the individual calls. Spec §53 wants tools_called in
+    the audit trail, and this is the only vantage point that currently sees
+    them — the tool server itself.
+
+    Deliberately not a substitute for the real audit trail, which also needs
+    the run id, user id, model, tokens and cost. Those live on the agent side.
+    """
+    rec = {
+        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "tool": tool,
+        "args": {k: v for k, v in args.items() if v is not None},
+        "result": result_summary,
+    }
+    line = json.dumps(rec)
+    try:
+        with CALL_LOG.open("a") as f:
+            f.write(line + "\n")
+    except OSError:
+        pass  # a log write must never break a tool call
+    print(f"[tool] {line}", file=sys.stderr, flush=True)
+
+
+def _traced(tool: str):
+    """Wrap a tool so every invocation is logged with a size-bounded summary."""
+
+    def deco(fn):
+        @functools.wraps(fn)
+        def wrapper(*a, **kw):
+            out = fn(*a, **kw)
+            if isinstance(out, list):
+                summary = f"{len(out)} row(s)"
+            elif isinstance(out, dict):
+                if out.get("found") is False:
+                    summary = "not found"
+                elif "returned" in out:
+                    summary = f"{out['returned']} of {out.get('row_count')} row(s)"
+                else:
+                    summary = f"{len(out)} field(s)"
+            else:
+                summary = type(out).__name__
+            _log_call(tool, kw, summary)
+            return out
+
+        return wrapper
+
+    return deco
 
 HOST = "127.0.0.1"   # never bind wider: these tools expose account data
 PORT = 8081
@@ -61,6 +118,7 @@ def _series_for(run_id: str) -> list[dict]:
 # agent never sees an MT5 quirk (spec §16).
 
 @mcp.tool(name="mt5.get_account", annotations=READ_ONLY)
+@_traced("mt5.get_account")
 def mt5_get_account() -> dict:
     """Current state of the connected MT5 account: balance, equity, margin,
     open position count and connection health. Read-only."""
@@ -68,6 +126,7 @@ def mt5_get_account() -> dict:
 
 
 @mcp.tool(name="mt5.get_positions", annotations=READ_ONLY)
+@_traced("mt5.get_positions")
 def mt5_get_positions() -> list[dict]:
     """Currently open positions. Returns an empty list when flat — an empty
     result is a real answer, not a failure."""
@@ -75,6 +134,7 @@ def mt5_get_positions() -> list[dict]:
 
 
 @mcp.tool(name="mt5.get_trade_history", annotations=READ_ONLY)
+@_traced("mt5.get_trade_history")
 def mt5_get_trade_history(limit: int = 20, symbol: str | None = None) -> list[dict]:
     """Closed trades, most recent last.
 
@@ -93,6 +153,7 @@ def mt5_get_trade_history(limit: int = 20, symbol: str | None = None) -> list[di
 # backtest — spec §33.
 
 @mcp.tool(name="backtests.search", annotations=READ_ONLY)
+@_traced("backtests.search")
 def backtests_search(
     instrument: str | None = None,
     timeframe: str | None = None,
@@ -131,6 +192,7 @@ def backtests_search(
 
 
 @mcp.tool(name="backtests.get_summary", annotations=READ_ONLY)
+@_traced("backtests.get_summary")
 def backtests_get_summary(pattern_id: str, version: int | None = None) -> dict:
     """Full stored record for one pattern: metrics, conditions, invalidations,
     execution assumptions and stated limitations.
@@ -145,6 +207,7 @@ def backtests_get_summary(pattern_id: str, version: int | None = None) -> dict:
 
 
 @mcp.tool(name="backtests.get_report", annotations=READ_ONLY)
+@_traced("backtests.get_report")
 def backtests_get_report(pattern_id: str, version: int | None = None) -> dict:
     """Locate the stored human-readable report for a pattern.
 
@@ -181,6 +244,7 @@ def backtests_get_report(pattern_id: str, version: int | None = None) -> dict:
 
 
 @mcp.tool(name="backtests.get_series", annotations=READ_ONLY)
+@_traced("backtests.get_series")
 def backtests_get_series(
     pattern_id: str,
     series: str,

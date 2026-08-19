@@ -71,6 +71,28 @@ exposing internals and it cannot tell a developer from a customer. Use
 
 ---
 
+## 2b. Seeing what it calls
+
+Every tool invocation is logged by the MCP server to `mcp_server/tool-calls.jsonl`
+and to its stderr:
+
+```bash
+tail -f mcp_server/tool-calls.jsonl
+```
+
+```json
+{"tool":"mt5.get_trade_history","args":{"limit":2,"symbol":"XAUUSD"},"result":"2 row(s)"}
+{"tool":"backtests.search","args":{"instrument":"EURUSD"},"result":"1 row(s)"}
+```
+
+This exists because OpenClaw's own trajectory export records **zero** tool
+events under the `claude-cli` provider — that provider drives the tool loop
+itself, so the gateway never observes the calls. The tool server is currently
+the only vantage point that sees them.
+
+It is not the spec §53 audit trail, which also needs run id, user id, model,
+tokens and cost. Those live on the agent side and are still missing.
+
 ## 3. Backdoors
 
 Audited, not assumed. Findings in order of seriousness.

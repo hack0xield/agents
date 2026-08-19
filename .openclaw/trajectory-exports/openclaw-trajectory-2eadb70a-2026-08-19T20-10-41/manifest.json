@@ -1,0 +1,28 @@
+{
+  "traceSchema": "openclaw-trajectory",
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-19T20:10:41.204Z",
+  "traceId": "2eadb70a-1f95-4db3-b71d-5b3b074f2822",
+  "sessionId": "2eadb70a-1f95-4db3-b71d-5b3b074f2822",
+  "sessionKey": "agent:trading-assistant:trace-1787170207",
+  "workspaceDir": "$WORKSPACE_DIR",
+  "leafId": "01f76f9f-8a80-4f0e-adb4-6ea8d5caee57",
+  "eventCount": 2,
+  "runtimeEventCount": 0,
+  "transcriptEventCount": 2,
+  "sourceFiles": {
+    "session": "$OPENC…sonl"
+  },
+  "contents": [
+    {
+      "path": "events.jsonl",
+      "mediaType": "application/x-ndjson",
+      "bytes": 1822
+    },
+    {
+      "path": "session-branch.json",
+      "mediaType": "application/json",
+      "bytes": 1936
+    }
+  ]
+}
