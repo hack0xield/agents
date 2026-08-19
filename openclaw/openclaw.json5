@@ -10,6 +10,26 @@
   // `openclaw onboard` normally writes this. We hand-write the config instead,
   // and the gateway refuses to start without gateway.mode — it treats a config
   // missing it as possibly clobbered. Verified via `openclaw config schema`.
+  // Stub trading tools: read-only, fixture-backed, spec.txt §10/§11.
+  // Served by mcp_server/server.py — run it with scripts/mcp-server.sh before
+  // the gateway, or tool calls fail at request time rather than at startup.
+  //
+  // OpenClaw rewrites dotted tool names to be provider-safe, so `mt5.get_account`
+  // reaches the model as `trading__mt5-get_account`. agent-workspace/TOOLS.md
+  // documents the mapping; the model needs the name it can actually call.
+  //
+  // MCP is the request/response tool interface only. It is deliberately not the
+  // transport for real-time market data (§11) — that stays on normal
+  // application infrastructure.
+  mcp: {
+    servers: {
+      trading: {
+        url: "http://127.0.0.1:8081/mcp",
+        transport: "streamable-http",
+      },
+    },
+  },
+
   gateway: {
     mode: "local",      // channels + agent runtime run on this host
     bind: "loopback",   // POC: do not expose the control plane to the LAN

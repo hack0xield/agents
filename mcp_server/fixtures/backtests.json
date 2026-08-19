@@ -1,0 +1,77 @@
+[
+  {
+    "pattern_id": "XAU_M15_DAY_OPEN",
+    "version": 1,
+    "instrument": "XAUUSD",
+    "timeframe": "M15",
+    "tested_from": "2022-04-26",
+    "tested_to": "2026-07-27",
+    "sample_size": 252,
+    "win_rate": 0.5794,
+    "expectancy_r": 0.1251,
+    "profit_factor": 1.2975,
+    "conditions": {
+      "entry": "Long at the first bar of the UTC trading day",
+      "direction": "BUY",
+      "weekdays": "0,1,2,3,4",
+      "one_position_at_a_time": true
+    },
+    "invalidations": {
+      "stop_loss_pct": 2.0,
+      "take_profit_pct": 2.0
+    },
+    "execution_assumptions": {
+      "initial_balance": 100000,
+      "slippage_points": 0,
+      "commission_per_lot": 0,
+      "swap_applied": true,
+      "intrabar": "conservative"
+    },
+    "limitations": [
+      "Single instrument, single direction \u2014 long only.",
+      "Max drawdown 9.7% over 326 days.",
+      "Longest losing streak: 7 trades.",
+      "No out-of-sample split; the whole period is in-sample.",
+      "Payoff ratio below 1 \u2014 profitability depends on the win rate holding."
+    ],
+    "detector_version": null,
+    "backtest_run_id": "20260727-130800_day_open_XAUUSD_M15",
+    "derived": {
+      "expectancy_r": "expectancy / |avg_loss|; the run reports currency, not R"
+    },
+    "report_available": true
+  },
+  {
+    "pattern_id": "EUR_H4_MARGIN_ZONES",
+    "version": 1,
+    "instrument": "EURUSD",
+    "timeframe": "H4",
+    "tested_from": "2022-01-03",
+    "tested_to": "2026-08-17",
+    "sample_size": 64,
+    "win_rate": null,
+    "expectancy_r": null,
+    "profit_factor": null,
+    "conditions": {
+      "zigzag_deviation": "2%",
+      "initial_margin_ratio": 1.1,
+      "contract": "6E"
+    },
+    "observations": {
+      "zones_identified": 64,
+      "reached_first_margin_zone_pct": 96.875,
+      "reached_intermediate_zone_pct": 93.75,
+      "avg_first_zone_distance_pips": 204.25,
+      "rollover_crossings_true": 68,
+      "rollover_crossings_false": 24
+    },
+    "limitations": [
+      "Structural study, not a traded strategy: no entries, exits or P&L.",
+      "Reach rates are not win rates. A zone being reached says nothing about whether trading toward it was profitable.",
+      "No execution assumptions modelled \u2014 no spread, slippage or costs."
+    ],
+    "detector_version": null,
+    "backtest_run_id": "20260817-144933_zones_EURUSD_H4_6E_dev2pct",
+    "report_available": true
+  }
+]

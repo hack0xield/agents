@@ -37,8 +37,13 @@ cp .env.example .env         # then fill it in — see below
 
 ## Run
 
+Two processes. **Start the MCP server first** — the gateway resolves tools
+lazily, so if it is not up, tool calls fail at request time rather than at
+startup, which looks like the agent choosing not to use them.
+
 ```bash
-npm run gateway              # loads .env, starts the OpenClaw gateway
+./scripts/mcp-server.sh      # terminal 1: read-only trading tools on :8081
+npm run gateway              # terminal 2: loads .env, starts the gateway
 ```
 
 Then DM the bot on Telegram. Because `dmPolicy: "pairing"`, the first message
@@ -60,7 +65,28 @@ scripts/node-env.sh       puts Node 24 on PATH
 scripts/install-config.sh installs the config to ~/.openclaw/
 scripts/gateway.sh        loads .env, starts the gateway
 scripts/oc                openclaw CLI wrapper with .env + Node 24 loaded
+scripts/mcp-server.sh     read-only trading tools (fixtures)
+scripts/install-agent-workspace.sh   agent behaviour -> OpenClaw workspace
+scripts/link-claude-cli.sh           resolve the Claude Code binary
+
+agent-workspace/          agent behaviour, version controlled here
+mcp_server/               stub MCP tools + fixtures
+mcp_server/build_fixtures.py         derives fixtures from ../trading/runs
+tests/agent-evals/        behavioural eval set (spec §61)
 ```
+
+## Fixtures
+
+`mcp_server/fixtures/` is generated, not hand-written:
+
+```bash
+.venv/bin/python mcp_server/build_fixtures.py
+```
+
+Every metric traces to a real run in `../trading/runs/`. That is deliberate — a
+fixture that invents `win_rate: 0.57` would teach the agent the exact habit
+`SOUL.md` forbids, and would make the evals meaningless. Anything derived rather
+than copied is labelled in the output under a `derived` key.
 
 ## ⚠️ Running on a personal Claude subscription (temporary)
 
