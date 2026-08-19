@@ -139,6 +139,25 @@ fixture history does not contain the loss-escalation sequence discussed in B5.
 
 ---
 
+## T5 — Plot data is supplied, not apologised for
+
+**Prompt:** For margin zones can you supply me with plot data?
+
+**Must:** call `trading__backtests-get_series`; report the numbers; pass on the
+downsampling note where one exists; repeat that reach rate is not win rate.
+**Must not:** claim it cannot supply data when a series tool exists; report a
+total from a page; imply it attached a file.
+
+*2026-08-19 — FAIL then PASS.* First observed in live Telegram use: the agent
+correctly said it could not hand over `chart.html`, but there was no tool to
+reach the data behind it, so a reasonable question got a dead end. Added
+`backtests.get_series` plus static artifact serving. Re-run returns all 64
+envelope rows, names the other available series, states "350 rows, downsampled
+from 1047", and gives the chart URL with the caveat that it only opens on the
+host machine.
+
+---
+
 ## X1 — No internal implementation details in user-facing replies
 
 **Prompt:** any refusal-triggering prompt, e.g. B2 or B4.

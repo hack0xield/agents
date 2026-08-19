@@ -153,6 +153,78 @@ def build_trade_history(limit: int = 40) -> list[dict]:
     return out
 
 
+# Series that back the charts. Copied into fixtures so the MCP server stays
+# self-contained — a real deployment will not have ../trading/runs mounted.
+MAX_SERIES_ROWS = 500
+
+SERIES = {
+    ZONES: {
+        "pivots": "Swing highs and lows identified by the zigzag.",
+        "envelopes": "Margin-zone envelopes per pivot, with reach flags.",
+        "crossings": "Rollover crossings of the 50% level, true vs false.",
+        "rollover": "Daily rollover reference prices.",
+    },
+    DAY_OPEN: {
+        "trades": "Closed trades with entry, exit, reason and P&L.",
+        "equity": "Equity curve.",
+    },
+}
+
+
+def _read_csv(path: Path) -> list[dict]:
+    """CSV rows with numeric-looking fields coerced, so the agent gets numbers
+    rather than strings it might quote verbatim."""
+    out = []
+    for row in csv.DictReader(path.open()):
+        rec = {}
+        for k, v in row.items():
+            if v in ("True", "False"):
+                rec[k] = v == "True"
+            else:
+                try:
+                    rec[k] = int(v) if v.lstrip("-").isdigit() else float(v)
+                except (ValueError, AttributeError):
+                    rec[k] = v
+        out.append(rec)
+    return out
+
+
+def build_series() -> dict:
+    out = {}
+    for run_id, names in SERIES.items():
+        for name, description in names.items():
+            f = RUNS / run_id / f"{name}.csv"
+            if not f.exists():
+                continue
+            rows = _read_csv(f)
+            total = len(rows)
+
+            # An equity curve is one row per bar — 100k of them. Nobody, model
+            # or human, benefits from the full series, and it would dominate
+            # the fixture file. Downsample evenly and say so, rather than
+            # silently truncating the tail and misrepresenting the shape.
+            note = None
+            if total > MAX_SERIES_ROWS:
+                step = total // MAX_SERIES_ROWS + 1
+                rows = rows[::step] + rows[-1:]
+                note = (
+                    f"Downsampled from {total} rows to {len(rows)} "
+                    f"(every {step}th, plus the final row)."
+                )
+
+            out[f"{run_id}::{name}"] = {
+                "run_id": run_id,
+                "series": name,
+                "description": description,
+                "columns": list(rows[0].keys()) if rows else [],
+                "row_count": len(rows),
+                "source_row_count": total,
+                "downsampled": note,
+                "rows": rows,
+            }
+    return out
+
+
 def build_account(history: list[dict]) -> dict:
     last = history[-1]
     return {
@@ -184,6 +256,7 @@ def main() -> None:
         "account.json": build_account(history),
         # No open positions: the empty case has to be representable too.
         "positions.json": [],
+        "series.json": build_series(),
     }
     for name, data in payloads.items():
         (OUT / name).write_text(json.dumps(data, indent=2) + "\n")

@@ -42,6 +42,20 @@ def _load(name: str) -> Any:
     return json.loads((FIXTURES / name).read_text())
 
 
+def _series_for(run_id: str) -> list[dict]:
+    """Which series exist for a run, without shipping the rows themselves."""
+    return [
+        {
+            "series": v["series"],
+            "description": v["description"],
+            "row_count": v["row_count"],
+            "downsampled": v["downsampled"],
+        }
+        for k, v in _load("series.json").items()
+        if k.startswith(run_id + "::")
+    ]
+
+
 # ─────────────────────────────── mt5.* ────────────────────────────────────
 # Normalized account state. Broker-specific shapes get flattened here so the
 # agent never sees an MT5 quirk (spec §16).
@@ -147,17 +161,100 @@ def backtests_get_report(pattern_id: str, version: int | None = None) -> dict:
                 "version": r["version"],
                 "backtest_run_id": run_id,
                 "artifacts": {
-                    "chart": f"runs/{run_id}/chart.html",
-                    "summary": f"runs/{run_id}/summary.json",
+                    "chart_url": f"http://{HOST}:{PORT}/artifacts/{run_id}/chart.html",
+                    "summary_url": f"http://{HOST}:{PORT}/artifacts/{run_id}/summary.json",
                 },
-                "note": (
-                    "POC: artifacts are local paths in the backtester "
-                    "workspace, not yet served over HTTP."
+                "artifact_note": (
+                    "These URLs are served from the machine running this "
+                    "assistant. They open in a browser on that machine; they "
+                    "are not reachable from a phone or another host. Offer the "
+                    "link to a user on the same machine — otherwise summarise "
+                    "the data instead, or use backtests.get_series."
                 ),
+                "available_series": _series_for(run_id),
                 "limitations": r.get("limitations", []),
             }
     return {"found": False, "pattern_id": pattern_id, "version": version}
 
 
+@mcp.tool(name="backtests.get_series", annotations=READ_ONLY)
+def backtests_get_series(
+    pattern_id: str,
+    series: str,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict:
+    """Underlying data behind a pattern's charts — the numbers a plot is drawn
+    from, not the plot image.
+
+    Call `backtests.get_report` first to see which series a pattern has.
+
+    Returns rows plus `row_count` and `returned`, so you can tell a page from
+    the whole series. Never claim a total from a page: if `returned` is less
+    than `row_count`, you are looking at a slice.
+
+    Args:
+        pattern_id: e.g. "EUR_H4_MARGIN_ZONES".
+        series: e.g. "envelopes", "pivots", "crossings", "rollover".
+        limit: rows to return, capped at 200 — a model reasoning over hundreds
+            of raw rows is expensive and rarely more accurate than reasoning
+            over the summary.
+        offset: rows to skip, for paging through a longer series.
+    """
+    record = None
+    for r in _load("backtests.json"):
+        if r["pattern_id"].upper() == pattern_id.upper():
+            record = r
+            break
+    if record is None:
+        return {"found": False, "pattern_id": pattern_id}
+
+    all_series = _load("series.json")
+    key = f"{record['backtest_run_id']}::{series}"
+    if key not in all_series:
+        available = sorted(
+            k.split("::")[1]
+            for k in all_series
+            if k.startswith(record["backtest_run_id"] + "::")
+        )
+        return {
+            "found": False,
+            "pattern_id": record["pattern_id"],
+            "series": series,
+            "available_series": available,
+        }
+
+    entry = all_series[key]
+    limit = max(1, min(limit, 200))
+    rows = entry["rows"][offset : offset + limit]
+    return {
+        "found": True,
+        "pattern_id": record["pattern_id"],
+        "series": entry["series"],
+        "description": entry["description"],
+        "columns": entry["columns"],
+        "row_count": entry["row_count"],
+        "source_row_count": entry["source_row_count"],
+        "downsampled": entry["downsampled"],
+        "offset": offset,
+        "returned": len(rows),
+        "rows": rows,
+    }
+
+
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http", host=HOST, port=PORT)
+    import uvicorn
+    from starlette.staticfiles import StaticFiles
+
+    # Serve the stored report artifacts (charts, summaries) alongside the tool
+    # endpoint, so `chart_url` resolves to something a browser on this machine
+    # can actually open. Spec §5 puts these in object storage; this is the POC
+    # stand-in for that, and deliberately loopback-only.
+    app = mcp.streamable_http_app()
+    runs = Path(__file__).resolve().parent.parent.parent / "trading" / "runs"
+    if runs.is_dir():
+        app.mount("/artifacts", StaticFiles(directory=runs), name="artifacts")
+    else:
+        print(f"warning: {runs} not found — artifact URLs will 404")
+
+    uvicorn.run(app, host=HOST, port=PORT)

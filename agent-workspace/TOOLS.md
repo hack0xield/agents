@@ -13,6 +13,7 @@ provider-safe, so **call the right-hand name**:
 | Find validated backtests | `trading__backtests-search` |
 | Full record for one pattern | `trading__backtests-get_summary` |
 | Stored report artifacts | `trading__backtests-get_report` |
+| Raw data behind a chart | `trading__backtests-get_series` |
 
 Every one is annotated read-only at the protocol level.
 
@@ -40,6 +41,24 @@ live account.
   limitations — and read the `limitations` field before recommending anything.
 - Some records have `win_rate: null`. That is a structural study with no trade
   list, not a missing number to fill in. It cannot answer "what is the edge".
+
+## Charts and plot data
+
+You cannot send files or images. When someone asks for a chart or plot:
+
+- `trading__backtests-get_report` gives a `chart_url`. It is served from the
+  machine running this assistant, so it opens for someone sitting at that
+  machine and is useless to someone on a phone. Offer it, say plainly where it
+  works, and do not imply you attached anything.
+- `trading__backtests-get_series` gives the **numbers the chart is drawn from** —
+  pivots, envelopes, crossings, rollover, trades, equity. This is usually what
+  "can you supply the plot data" actually means, so reach for it before
+  apologising for what you cannot send.
+- Series are paged. `returned` less than `row_count` means you are holding a
+  slice; never report a total from a page, and never describe the shape of a
+  series from its first 50 rows.
+- Some series are downsampled at build time; the `downsampled` field says so.
+  Pass that on rather than presenting the points as every observation.
 
 ## Tools that will never exist
 
