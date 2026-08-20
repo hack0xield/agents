@@ -25,6 +25,7 @@ Details, including the untested multi-account question: docs/MT5.md
 import json
 import os
 import sys
+import threading
 from pathlib import Path
 import time
 from datetime import datetime, timedelta, timezone
@@ -48,6 +49,14 @@ DEAL_REASON = {
 _accounts: dict | None = None
 _accounts_mtime: float | None = None
 _connected_ref: str | None = None
+
+# One terminal serves one account at a time, so a request must hold it from the
+# moment it selects an account until it has finished reading. Without this, two
+# concurrent requests for different refs interleave: A switches to Alice, B
+# switches to Bob, then A reads and is handed Bob's positions labelled as
+# Alice's. That is the cross-user leak this service exists to prevent, arriving
+# by a different route.
+_terminal = threading.RLock()
 
 
 def _resolve_secret(entry: dict) -> dict:
@@ -289,18 +298,22 @@ class Handler(BaseHTTPRequestHandler):
                                    "detail": "every data request must name ?ref=<credential_ref>",
                                    "connection_state": "DISCONNECTED"}, 400)
 
-            ok, detail = ensure_connected(ref)
-            if not ok:
-                return self._send({"error": "mt5 not connected", "detail": detail,
-                                   "ref": ref, "connection_state": "DISCONNECTED"}, 503)
-            if u.path == "/account":
-                return self._send({**account(), "credential_ref": ref})
-            if u.path == "/positions":
-                return self._send(positions())
-            if u.path == "/history":
-                days = int(q.get("days", ["30"])[0])
-                sym = q.get("symbol", [None])[0]
-                return self._send(history(days=days, symbol=sym))
+            # Held across the read, not just the connect: releasing after
+            # ensure_connected would let another ref switch the terminal
+            # underneath this request.
+            with _terminal:
+                ok, detail = ensure_connected(ref)
+                if not ok:
+                    return self._send({"error": "mt5 not connected", "detail": detail,
+                                       "ref": ref, "connection_state": "DISCONNECTED"}, 503)
+                if u.path == "/account":
+                    return self._send({**account(), "credential_ref": ref})
+                if u.path == "/positions":
+                    return self._send(positions())
+                if u.path == "/history":
+                    days = int(q.get("days", ["30"])[0])
+                    sym = q.get("symbol", [None])[0]
+                    return self._send(history(days=days, symbol=sym))
             self._send({"error": "not found"}, 404)
         except Exception as e:                      # never take the bridge down
             self._send({"error": type(e).__name__, "detail": str(e)}, 500)

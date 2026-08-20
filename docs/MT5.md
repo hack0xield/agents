@@ -116,6 +116,30 @@ lifetime are independent. A 3.4 s cold start also means pure on-demand is
 viable for answering questions — it is only proactive monitoring that needs
 something running.
 
+### Switching accounts mid-flight
+
+A request naming a different ref re-logins the same terminal. One terminal
+serves one account at a time, so the switch is serialised by a lock held from
+account selection until the read completes — not just around the connect.
+
+Releasing it earlier would reintroduce the leak this service exists to prevent,
+by a different route:
+
+```text
+thread A: ensure_connected("alice")   terminal now on Alice
+thread B: ensure_connected("bob")     terminal now on Bob
+thread A: positions_get()             returns BOB's positions, as Alice's
+```
+
+The consequence is that concurrent users with different accounts queue behind
+each other, each paying a re-login. With one account nothing switches and the
+cost is nil. With many it is the throughput ceiling, and the reason the
+multiplexing question below decides the fleet design.
+
+**Not verified.** Both refs available here resolve to the same login, so no
+switch occurs and the lock is untested against a real one. It needs a second
+credential.
+
 ### Open: can one terminal serve several accounts?
 
 **Untested — needs a second credential, and it decides the architecture.**
