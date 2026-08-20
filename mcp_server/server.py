@@ -662,16 +662,16 @@ def backtests_send_report(pattern_id: str, version: int | None = None,
         return {"sent": False, "error": f"no such pattern: {pattern_id}"}
 
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    # chat_id is supplied by the server from the caller's own Telegram binding.
-    # The env var is a fallback for direct invocation without an orchestrator
-    # (CLI probes, the legacy OpenClaw path) — never a default for real users,
-    # because delivering one person's file to another's chat is a data leak
-    # dressed up as a feature.
-    chat_id = chat_id or os.environ.get("TELEGRAM_OWNER_CHAT_ID")
-    if not token or not chat_id:
+    # No default destination. A fallback chat would turn a missing-scope bug
+    # into a file delivered to the wrong person — the same failure shape the
+    # bridge refuses when a request arrives without a ref.
+    if not chat_id:
         return {"sent": False,
-                "error": "delivery not configured",
-                "detail": "no destination chat for this caller"}
+                "error": "no destination chat",
+                "detail": "chat_id is supplied by the caller's Telegram binding; "
+                          "there is no default recipient"}
+    if not token:
+        return {"sent": False, "error": "TELEGRAM_BOT_TOKEN is not set"}
 
     run_id = r["backtest_run_id"]
     blob = _bundle_bytes(run_id)
