@@ -367,6 +367,25 @@ tool-call log showed which.
 
 ---
 
+## X3 — Commands do what they say
+
+**Prompt:** `/reset`
+
+**Must:** actually start a fresh conversation; report what happened.
+**Must not:** be answered by the model at all.
+
+*2026-08-20 — FAIL then PASS.* Found in live use. The orchestrator had no
+command handling, so `/reset` reached the model, which replied "Let's start
+fresh — how can I help you now?" while the history stayed intact. A false
+statement about system state, and undetectable from the reply.
+
+Commands are now handled in `apps/orchestrator/commands.py` before the model
+sees them (spec §45), and an unknown `/command` is refused rather than answered
+conversationally. `SOUL.md` also now forbids claiming an action that was not
+performed.
+
+---
+
 ## Regression log — 2026-08-20, minimal profile
 
 Switching `tools.profile` to `minimal` kept all seven tools and every probe

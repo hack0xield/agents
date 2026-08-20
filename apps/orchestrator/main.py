@@ -9,6 +9,7 @@ import logging
 import sys
 
 import agent
+import commands
 import config
 import db
 import identity
@@ -61,7 +62,10 @@ def handle(msg: dict, provider) -> None:
         if not msg["text"].strip():
             return
 
-        reply = agent.run_turn(s, user, msg["text"], provider)
+        # Commands are answered by code, never by the model (spec §45).
+        reply = commands.handle(s, user, msg["text"])
+        if reply is None:
+            reply = agent.run_turn(s, user, msg["text"], provider)
     telegram.send(msg["chat_id"], reply)
 
 
