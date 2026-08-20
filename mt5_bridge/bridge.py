@@ -61,6 +61,7 @@ RUN
 """
 
 import json
+import os
 import sys
 from pathlib import Path
 import time
@@ -83,6 +84,7 @@ DEAL_REASON = {
 }
 
 _accounts: dict | None = None
+_accounts_mtime: float | None = None
 _connected_ref: str | None = None
 
 
@@ -111,11 +113,21 @@ def _resolve_secret(entry: dict) -> dict:
 
 
 def accounts() -> dict:
-    global _accounts
-    if _accounts is None:
+    """Credential store, reloaded when the file changes.
+
+    Cached by mtime rather than forever: connecting a new account must not
+    require restarting the bridge and dropping every live terminal session.
+    """
+    global _accounts, _accounts_mtime
+    try:
+        mtime = os.stat(ACCOUNTS).st_mtime
+    except OSError:
+        mtime = None
+    if _accounts is None or mtime != _accounts_mtime:
         with open(ACCOUNTS) as f:
             raw = {k: v for k, v in json.load(f).items() if not k.startswith("_")}
         _accounts = {k: _resolve_secret(v) for k, v in raw.items()}
+        _accounts_mtime = mtime
     return _accounts
 
 

@@ -218,6 +218,45 @@ Live against the founder's demo account, the first thing it surfaced was
 `access: MASTER_TRADING_ENABLED` — the §1 problem, confirmed in production data
 rather than in theory.
 
+## 4c. How an account gets connected — and what is missing
+
+**Nothing populates the store automatically.** Today:
+
+```bash
+./scripts/pair.py "Name"                    # user + telegram binding
+./scripts/connect-account.py --user <uuid> \
+    --login 10534821 --server FTMO-Demo2 --nickname "FTMO 100K"
+```
+
+`connect-account.py` writes both halves — the credential into
+`accounts.json`, and the `trading_accounts` row that maps a user to it — and
+rolls the credential back out if the database write fails. Half a connection is
+worse than none: an orphaned secret on disk with no row pointing at it is a
+liability nobody remembers to clean up.
+
+The bridge reloads the store when the file changes, so a new account does not
+require a restart that would drop every live terminal session.
+
+### This is an operator tool, not onboarding
+
+Spec §3.4 is explicit: the trader types their MT5 credentials into an
+authenticated HTTPS page, never into a chat, and never into someone else's
+terminal. `connect-account.py` prompts on the operator's console — fine for
+founder-alpha, wrong for a customer. The web form is the missing piece, and it
+belongs with the website (§65 step 13).
+
+### One JSON file does not scale to real users
+
+`accounts.json` currently holds every connected account. At one user that is a
+POC compromise. At fifty it is a single file whose disclosure is a total
+breach of every customer's account credentials, sitting on the same host that
+runs a Wine prefix and an HTTP server.
+
+Spec §47 is unambiguous — credentials belong in a secrets manager, encrypted at
+rest, never in a plain file. `credential_ref` exists precisely so that
+substitution is a change to one function (`_resolve_secret`) rather than to
+every call site. Make that change before onboarding anyone who is paying.
+
 ## 5. Build order
 
 1. **Read-only façade** over the existing connector. Nothing else is safe to
