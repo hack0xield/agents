@@ -54,25 +54,35 @@ def main() -> int:
 
     import db, models  # noqa: E402
 
+    other_users: list = []
+
     ref = args.ref or f"mt5-{args.login}"
     store = load_store()
-    if ref in store:
-        print(f"error: credential ref {ref!r} already exists", file=sys.stderr)
-        return 1
+    reused = ref in store
 
-    password = getpass.getpass("MT5 investor password: ")
-    if not password:
-        print("error: empty password", file=sys.stderr)
-        return 1
-
-    store[ref] = {
-        "login": args.login,
-        "password": password,
-        "server": args.server,
-        "mt5_path": args.mt5_path,
-        **({"allow_master": True} if args.allow_master else {}),
-    }
-    save_store(store)
+    if reused:
+        # Attaching a credential that already exists, rather than adding one.
+        # Intended for founder-alpha, where a single demo account is shared
+        # while the second one does not exist yet.
+        entry = store[ref]
+        if int(entry.get("login", 0)) != args.login:
+            print(f"error: ref {ref!r} is login {entry.get('login')}, not {args.login}",
+                  file=sys.stderr)
+            return 1
+        print(f"reusing existing credential {ref!r} (no password needed)")
+    else:
+        password = getpass.getpass("MT5 investor password: ")
+        if not password:
+            print("error: empty password", file=sys.stderr)
+            return 1
+        store[ref] = {
+            "login": args.login,
+            "password": password,
+            "server": args.server,
+            "mt5_path": args.mt5_path,
+            **({"allow_master": True} if args.allow_master else {}),
+        }
+        save_store(store)
 
     try:
         db.create_all()
@@ -81,6 +91,9 @@ def main() -> int:
             if user is None:
                 raise SystemExit(f"no such user: {args.user}")
             existing = [a for a in user.trading_accounts]
+            other_users[:] = s.query(models.TradingAccount).filter(
+                models.TradingAccount.credential_ref == ref,
+                models.TradingAccount.user_id != user.id).all()
             s.add(models.TradingAccount(
                 user_id=user.id, nickname=args.nickname, login=args.login,
                 server=args.server, broker=args.broker, credential_ref=ref,
@@ -88,12 +101,17 @@ def main() -> int:
                 is_default=not existing,
             ))
     except BaseException:
-        # Roll the credential back out; an orphan secret on disk with no row
-        # pointing at it is a liability nobody will remember to clean up.
-        store.pop(ref, None)
-        save_store(store)
+        if not reused:
+            # Roll back only what this run wrote. An orphan secret with no row
+            # pointing at it is a liability nobody remembers to clean up — but
+            # a pre-existing credential is not ours to delete.
+            store.pop(ref, None)
+            save_store(store)
         raise
 
+    if reused and other_users:
+        print(f"note: credential {ref!r} is now attached to {len(other_users) + 1} users. "
+              f"They share one MT5 account — fine for testing, wrong for real traders.")
     print(f"connected {args.nickname} (login {args.login}) to user {args.user}")
     print(f"  credential_ref: {ref}")
     print("  the bridge picks this up without a restart")
