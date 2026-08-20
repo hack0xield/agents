@@ -71,6 +71,7 @@ def accounts_for(s: Session, user_id) -> list[dict]:
         models.TradingAccount.user_id == user_id)).all()
     return [{"id": str(a.id), "nickname": a.nickname, "login": a.login,
              "server": a.server, "access": a.access,
+             "credential_ref": a.credential_ref,
              "connection_state": a.connection_state, "is_default": a.is_default}
             for a in rows]
 
@@ -84,4 +85,9 @@ def tool_scope(s: Session, user: models.User) -> dict:
     accounts = accounts_for(s, user.id)
     default = next((a for a in accounts if a["is_default"]), None) or (
         accounts[0] if accounts else None)
-    return {"account_id": default["id"]} if default else {}
+    if not default:
+        # No account: the tools receive no ref and answer NO_ACCOUNT. They must
+        # never inherit whichever account the terminal is currently on.
+        return {}
+    return {"account_id": default["id"],
+            "credential_ref": default["credential_ref"]}

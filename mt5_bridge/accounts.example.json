@@ -1,0 +1,20 @@
+{
+  "_comment": [
+    "Credential store for the MT5 bridge. Copy to accounts.json and fill in.",
+    "accounts.json is gitignored and must never be committed (spec §47).",
+    "",
+    "Keys are credential_ref values, matching trading_accounts.credential_ref",
+    "in Postgres. The database stores the ref; only this file holds a secret,",
+    "and only the bridge process reads it.",
+    "",
+    "Use an INVESTOR (read-only) password. The bridge refuses an account whose",
+    "account_info reports trade_allowed=true unless allow_master is set."
+  ],
+  "founder-demo": {
+    "login": 110119104,
+    "password": "…",
+    "server": "MetaQuotes-Demo",
+    "mt5_path": "C:\\Program Files\\MetaTrader 5\\terminal64.exe",
+    "allow_master": true
+  }
+}

@@ -71,6 +71,29 @@ res = tools.call_tool("mt5__get_account", {"account_id": "someone-else"},
 check("model-supplied account_id is discarded",
       "someone-else" not in res.text, res.text[:120])
 
+# 6. A user with no connected account gets NO_ACCOUNT, never someone else's.
+#    The bridge originally read one hardcoded login and would have answered
+#    every user with that account's positions, labelled as their own.
+import json as _json
+res = tools.call_tool("mt5__get_positions", {}, scope={})
+try:
+    body = _json.loads(res.text)
+except ValueError:
+    body = {}
+check("user without an account sees NO_ACCOUNT",
+      body.get("connection_state") == "NO_ACCOUNT", res.text[:160])
+
+# 7. Naming another user's credential_ref does not fetch it.
+res = tools.call_tool("mt5__get_account", {"credential_ref": "founder-demo"},
+                      scope={})
+try:
+    body = _json.loads(res.text)
+except ValueError:
+    body = {}
+check("model-supplied credential_ref is discarded",
+      body.get("connection_state") == "NO_ACCOUNT" and "balance" not in body,
+      res.text[:160])
+
 # 6. A disabled user is refused even though the pairing still exists.
 with db.session_scope() as s:
     a = identity.user_for_telegram(s, ta_id)

@@ -24,3 +24,6 @@ mcp_server/tool-calls.jsonl
 
 # MT5 experiment output
 experiments/*.out
+
+# MT5 credential store — never commit
+mt5_bridge/accounts.json

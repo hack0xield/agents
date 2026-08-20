@@ -142,9 +142,14 @@ def _series_for(run_id: str) -> list[str]:
 
 @mcp.tool(name="mt5.get_account", annotations=READ_ONLY)
 @_traced("mt5.get_account")
-def mt5_get_account() -> dict:
+def mt5_get_account(credential_ref: str | None = None) -> dict:
     """Current state of the connected MT5 account: balance, equity, margin,
     open position count and connection health. Read-only.
+
+    `credential_ref` is supplied by the server from the caller's connected
+    account. You do not choose it, and a value you pass is discarded.
+    `connection_state: NO_ACCOUNT` means this trader has no account connected —
+    say that, rather than reporting an empty or absent account.
 
     `data_source` is "live" when the terminal answered. A payload with
     `connection_state: DISCONNECTED` means the terminal is unreachable —
@@ -155,12 +160,12 @@ def mt5_get_account() -> dict:
     trading-capable password instead of an investor one. Say so plainly: it is
     a security problem the trader needs to fix, not a detail to skip over.
     """
-    return mt5_live.get_account()
+    return mt5_live.get_account(credential_ref)
 
 
 @mcp.tool(name="mt5.get_positions", annotations=READ_ONLY)
 @_traced("mt5.get_positions")
-def mt5_get_positions() -> list | dict:
+def mt5_get_positions(credential_ref: str | None = None) -> list | dict:
     """Currently open positions. Returns an empty list when flat — an empty
     result is a real answer, not a failure.
 
@@ -168,13 +173,14 @@ def mt5_get_positions() -> list | dict:
     unreachable. That is not the same as being flat, and must never be reported
     as "no open positions".
     """
-    return mt5_live.get_positions()
+    return mt5_live.get_positions(credential_ref)
 
 
 @mcp.tool(name="mt5.get_trade_history", annotations=READ_ONLY)
 @_traced("mt5.get_trade_history")
 def mt5_get_trade_history(limit: int = 20, symbol: str | None = None,
-                          days: int = 90) -> list | dict:
+                          days: int = 90,
+                          credential_ref: str | None = None) -> list | dict:
     """Closed trades, most recent last.
 
     One row per completed round trip, not per MT5 deal — entry and exit deals
@@ -186,15 +192,16 @@ def mt5_get_trade_history(limit: int = 20, symbol: str | None = None,
         symbol: optional instrument filter, e.g. "XAUUSD".
         days: how far back to search the account history.
     """
-    return mt5_live.get_trade_history(limit=limit, symbol=symbol, days=days)
+    return mt5_live.get_trade_history(limit=limit, symbol=symbol, days=days,
+                                      credential_ref=credential_ref)
 
 
 @mcp.tool(name="mt5.get_connection_status", annotations=READ_ONLY)
 @_traced("mt5.get_connection_status")
-def mt5_get_connection_status() -> dict:
+def mt5_get_connection_status(credential_ref: str | None = None) -> dict:
     """Whether the MT5 terminal is reachable. Use this when a data call comes
     back DISCONNECTED, to tell a dropped connection from a quiet account."""
-    return mt5_live.status()
+    return mt5_live.status(credential_ref)
 
 
 # ──────────────────────────── backtests.* ─────────────────────────────────

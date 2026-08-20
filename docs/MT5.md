@@ -169,6 +169,24 @@ It calls exactly three MT5 functions — `account_info`, `positions_get`,
 `history_deals_get`. No trading entry point is imported anywhere in the file, so
 no configuration can reach one.
 
+### One account per request, never a default
+
+The bridge originally read a single hardcoded login from the backtester's
+`config.json` — an account that repo uses to *fetch bars*, not to represent a
+trader. Every user of the assistant would have been shown that account's
+balance and positions as their own.
+
+That is the worst failure shape available here: not an error, but a confident
+wrong answer about someone's money. Fixed by removing the default entirely.
+Each request must carry `?ref=<credential_ref>`; a request without one is
+refused. Refs resolve in `mt5_bridge/accounts.json` (gitignored, mode 600) and
+match `trading_accounts.credential_ref` in Postgres — the database holds the
+ref, only that file holds a secret.
+
+The ref is a server-owned argument (`tools.USER_SCOPED_ARGS`), so a model that
+names someone else's ref has it discarded. A user with no connected account
+gets `NO_ACCOUNT`, which is a different answer from "no open positions".
+
 `mcp_server/mt5_live.py` is the Linux-side client. **Live only — the fixtures
 are deleted, not disabled.** Quietly serving stub data for a real account is
 the worst failure available here, and keeping a plausible fake in the tree is

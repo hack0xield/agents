@@ -25,7 +25,8 @@ import config
 
 # Arguments the server owns. If the model emits one of these, the value is
 # replaced — never merged, never trusted.
-USER_SCOPED_ARGS = {"account_id", "user_id", "chat_id", "telegram_chat_id"}
+USER_SCOPED_ARGS = {"account_id", "user_id", "chat_id", "telegram_chat_id",
+                    "credential_ref"}
 
 
 @dataclass

@@ -4,8 +4,12 @@ The bridge runs under Wine (see mt5_bridge/bridge.py) because MetaTrader5 is
 Windows-only. This module talks to it over loopback HTTP and is the only place
 the MCP server knows a broker exists.
 
-Live only. There is no fixture mode and no offline fallback: an unreachable
-terminal returns DISCONNECTED and the agent reports that.
+Live only, and per account. Every call names a `credential_ref` identifying
+whose account to read; there is no default. A request without one returns
+NO_ACCOUNT rather than whichever account the terminal happens to be on — that
+fallback is how one user ends up reading another's positions.
+
+The ref comes from the caller's `trading_accounts` row, never from the model.
 
 That is deliberate. Quietly substituting stub data for a real account is the
 worst failure this system could have — a trader told about positions they do
@@ -54,6 +58,15 @@ def _disconnected(detail: str) -> dict:
     }
 
 
+def _no_account() -> dict:
+    return {
+        "connection_state": "NO_ACCOUNT",
+        "data_source": "none",
+        "error": "no trading account connected for this user",
+        "hint": "Connect an MT5 account before asking about account data.",
+    }
+
+
 def _rows_or_error(path: str) -> list | dict:
     data, err = _get(path)
     if err or data is None:
@@ -63,27 +76,35 @@ def _rows_or_error(path: str) -> list | dict:
     return [{**row, "data_source": "live"} for row in data]
 
 
-def get_account() -> dict:
-    data, err = _get("/account")
+def get_account(credential_ref: str | None = None) -> dict:
+    if not credential_ref:
+        return _no_account()
+    data, err = _get(f"/account?ref={credential_ref}")
     if err or data is None or "error" in data:
         detail = err or str(data.get("detail", data.get("error")))
         return _disconnected(detail)
     return {**data, "data_source": "live"}
 
 
-def get_positions() -> list | dict:
-    return _rows_or_error("/positions")
+def get_positions(credential_ref: str | None = None) -> list | dict:
+    if not credential_ref:
+        return _no_account()
+    return _rows_or_error(f"/positions?ref={credential_ref}")
 
 
 def get_trade_history(limit: int = 20, symbol: str | None = None,
-                      days: int = 90) -> list | dict:
-    q = f"/history?days={days}" + (f"&symbol={symbol}" if symbol else "")
+                      days: int = 90, credential_ref: str | None = None) -> list | dict:
+    if not credential_ref:
+        return _no_account()
+    q = f"/history?ref={credential_ref}&days={days}" + (f"&symbol={symbol}" if symbol else "")
     rows = _rows_or_error(q)
     return rows[-limit:] if isinstance(rows, list) else rows
 
 
-def status() -> dict:
+def status(credential_ref: str | None = None) -> dict:
     data, err = _get("/health")
     if err or data is None:
         return {"connection_state": "DISCONNECTED", "detail": err}
-    return dict(data)
+    out = dict(data)
+    out["has_account"] = bool(credential_ref)
+    return out

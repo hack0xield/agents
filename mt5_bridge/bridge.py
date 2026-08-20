@@ -19,19 +19,28 @@ WHY IT IS A SEPARATE PROCESS
     everything else. This file runs under the Wine Python that shares the MT5
     prefix (~/.mt5). That is the only reason it exists as its own service.
 
-WHICH ACCOUNT, AND WHOSE CREDENTIALS
-    Exactly one, read at startup from:
+WHICH ACCOUNT
+    Every data request must name one, with ?ref=<credential_ref>. There is no
+    default and no fallback: a request without a ref is refused rather than
+    served from whichever account happens to be connected.
 
-        ../trading/mt5-mcp-server/config.json   →  login / password / server
+    That matters because the alternative is the worst bug this system can have.
+    The bridge originally read one hardcoded login — the backtester's
+    data-fetch account — and would have answered /positions with that account's
+    trades for every user who asked, labelled as their own. A wrong answer that
+    looks right is worse than an error.
 
-    Currently login 110119104 on MetaQuotes-Demo. Every user of the assistant
-    sees this same account: the bridge has no notion of who is asking. That is
-    a real limitation, not a simplification — see docs/MT5.md before connecting
-    a second person to anything.
+    Refs map to credentials in accounts.json (gitignored, mode 600), and match
+    trading_accounts.credential_ref in Postgres. The database holds the ref;
+    only this file holds a secret.
 
-    The password in that file is a MASTER password: account_info reports
-    trade_allowed = true. The product expects an investor (read-only) password
-    (spec §3.4), and onboarding should reject anything else.
+    Switching accounts re-initialises the terminal. Measured: ~3.5s cold, 4-7ms
+    when already connected to that account. Whether one terminal can sustain
+    many accounts by re-login is still untested — see docs/MT5.md §3b.
+
+    Use an INVESTOR (read-only) password. The bridge reports access as
+    MASTER_TRADING_ENABLED when account_info says trade_allowed, so a wrong
+    credential is visible rather than silent (spec §3.4).
 
 IT CANNOT TRADE
     Only three MT5 functions are called: account_info, positions_get,
@@ -53,6 +62,7 @@ RUN
 
 import json
 import sys
+from pathlib import Path
 import time
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -61,7 +71,9 @@ from urllib.parse import parse_qs, urlparse
 import MetaTrader5 as mt5
 
 HOST, PORT = "127.0.0.1", 8082
-CONFIG = r"Z:\home\epershyn\Documents\trading_assistant\trading\mt5-mcp-server\config.json"
+
+# Wine maps the Linux root at Z:. This file sits next to bridge.py.
+ACCOUNTS = str(Path(__file__).resolve().parent / "accounts.json")
 
 POSITION_TYPE = {0: "BUY", 1: "SELL"}
 DEAL_REASON = {
@@ -70,32 +82,57 @@ DEAL_REASON = {
     7: "ROLLOVER", 8: "VMARGIN", 9: "SPLIT",
 }
 
-_cfg = None
+_accounts: dict | None = None
+_connected_ref: str | None = None
 
 
-def cfg():
-    global _cfg
-    if _cfg is None:
-        with open(CONFIG) as f:
-            _cfg = json.load(f)
-    return _cfg
+def accounts() -> dict:
+    global _accounts
+    if _accounts is None:
+        with open(ACCOUNTS) as f:
+            _accounts = {k: v for k, v in json.load(f).items()
+                         if not k.startswith("_")}
+    return _accounts
 
 
-def ensure_connected() -> bool:
-    """Attach to the terminal, launching it if needed.
+def ensure_connected(ref: str) -> tuple[bool, str]:
+    """Connect the terminal to the account named by `ref`.
 
-    Cheap when the terminal is already up (measured 4-7 ms); ~3.4 s cold.
-    Safe to call per request.
+    Returns (ok, detail). Re-initialises when the terminal is on a different
+    account, which is what makes one terminal serve several — cheap when
+    already on the right one (measured 4-7 ms), ~3.5 s otherwise.
     """
+    global _connected_ref
+
+    cred = accounts().get(ref)
+    if cred is None:
+        return False, f"unknown credential ref: {ref}"
+
+    if _connected_ref == ref:
+        acc = mt5.account_info()
+        if acc is not None and int(acc.login) == int(cred["login"]):
+            return True, "already connected"
+
+    mt5.shutdown()
+    ok = mt5.initialize(
+        path=cred["mt5_path"], login=int(cred["login"]),
+        password=cred["password"], server=cred["server"],
+        timeout=int(cred.get("timeout", 60)) * 1000,
+    )
+    if not ok:
+        _connected_ref = None
+        return False, f"initialize failed: {mt5.last_error()}"
+
     acc = mt5.account_info()
-    if acc is not None and acc.login != 0:
-        return True
-    c = cfg()
-    return bool(mt5.initialize(
-        path=c["mt5_path"], login=int(c["login"]),
-        password=c["password"], server=c["server"],
-        timeout=int(c.get("timeout", 60)) * 1000,
-    ))
+    if acc is None or int(acc.login) != int(cred["login"]):
+        # Connected to something other than what was asked for. Serving it
+        # would be exactly the wrong-account failure this design exists to
+        # prevent, so refuse instead.
+        _connected_ref = None
+        return False, "terminal connected to a different account than requested"
+
+    _connected_ref = ref
+    return True, "connected"
 
 
 def iso(ts) -> str:
@@ -218,14 +255,27 @@ class Handler(BaseHTTPRequestHandler):
         q = parse_qs(u.query)
         try:
             if u.path == "/health":
-                ok = ensure_connected()
-                return self._send({"ok": ok, "connection_state": "CONNECTED" if ok else "DISCONNECTED"})
-            if not ensure_connected():
-                return self._send({"error": "mt5 not connected",
-                                   "detail": str(mt5.last_error()),
-                                   "connection_state": "DISCONNECTED"}, 503)
+                # Liveness only; says nothing about any particular account.
+                return self._send({"ok": True, "refs": sorted(accounts()),
+                                   "connected_ref": _connected_ref})
+            if u.path == "/accounts":
+                return self._send({"refs": sorted(accounts())})
+
+            ref = (q.get("ref") or [None])[0]
+            if not ref:
+                # No default account, deliberately. Serving whichever account
+                # happens to be connected is how one user sees another's
+                # positions.
+                return self._send({"error": "missing ref",
+                                   "detail": "every data request must name ?ref=<credential_ref>",
+                                   "connection_state": "DISCONNECTED"}, 400)
+
+            ok, detail = ensure_connected(ref)
+            if not ok:
+                return self._send({"error": "mt5 not connected", "detail": detail,
+                                   "ref": ref, "connection_state": "DISCONNECTED"}, 503)
             if u.path == "/account":
-                return self._send(account())
+                return self._send({**account(), "credential_ref": ref})
             if u.path == "/positions":
                 return self._send(positions())
             if u.path == "/history":
@@ -242,7 +292,12 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     print(f"[bridge] read-only MT5 bridge on http://{HOST}:{PORT}", flush=True)
-    print(f"[bridge] connecting…", flush=True)
-    t0 = time.perf_counter()
-    print(f"[bridge] connected={ensure_connected()} in {(time.perf_counter()-t0)*1000:.0f} ms", flush=True)
+    try:
+        refs = sorted(accounts())
+    except OSError as e:
+        print(f"[bridge] cannot read {ACCOUNTS}: {e}", flush=True)
+        print("[bridge] copy accounts.example.json to accounts.json", flush=True)
+        raise SystemExit(1)
+    print(f"[bridge] {len(refs)} account(s): {', '.join(refs)}", flush=True)
+    print("[bridge] no default account — every request must pass ?ref=", flush=True)
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
