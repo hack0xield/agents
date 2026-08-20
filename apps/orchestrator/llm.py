@@ -111,10 +111,25 @@ class MessagesAPIProvider:
         # has to be sent, it just will not be cached.
         return [{k: v for k, v in b.items() if k != "cache_control"} for b in system]
 
+    def _messages(self, messages: list[dict]) -> list[dict]:
+        """Same treatment as _system: a backend without caching still needs the
+        text, it just must not be told to cache it."""
+        if "cache" in self.supports:
+            return messages
+        out = []
+        for m in messages:
+            c = m.get("content")
+            if isinstance(c, list):
+                c = [{k: v for k, v in b.items() if k != "cache_control"}
+                     if isinstance(b, dict) else b for b in c]
+            out.append({**m, "content": c})
+        return out
+
     def generate(self, system, messages, tools) -> Turn:
         kwargs = dict(
             model=self.model, max_tokens=config.MAX_TOKENS,
-            system=self._system(system), messages=messages, tools=tools or [],
+            system=self._system(system), messages=self._messages(messages),
+            tools=tools or [],
         )
         if "thinking" in self.supports:
             kwargs["thinking"] = {"type": "adaptive"}

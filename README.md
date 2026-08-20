@@ -94,12 +94,34 @@ see [docs/BACKTEST_EXECUTION.md](docs/BACKTEST_EXECUTION.md).
 ./tests/smoke-mcp.sh        # every tool answers            (free, ~2s)
 ./tests/test-offline.sh     # mt5.* degrades to DISCONNECTED (free)
 ./tests/test-isolation.sh   # spec §48, no cross-user leak   (free)
+./tests/test-history.sh     # context window and boundaries  (free)
 ./tests/run-evals.sh        # behavioural probes             (costs tokens)
 ```
 
-The first three are free — run them constantly. `run-evals.sh` needs a model
+The first four are free — run them constantly. `run-evals.sh` needs a model
 and does not auto-grade; score it against
 [tests/agent-evals/behaviour.md](tests/agent-evals/behaviour.md).
+
+## What is not built
+
+The assistant answers well when asked. Spec §66's definition of success is
+mostly *proactive*, and that half does not exist: morning brief, pattern alert,
+discipline alert and evening summary are four of its five points, and all four
+stand on the deterministic event engine (§2), which is also unbuilt.
+
+In spec §65's build order, what exists is steps 1–4 and 6. What §66 needs next
+is step 5 (account event stream), then 7–10 (pattern detector, event engine,
+proactive alerts, discipline engine).
+
+Two things block that next phase rather than merely being unfinished:
+
+- **`agent-workspace/USER.md` holds placeholder risk limits**, not the
+  trader's own. The discipline engine (§28) cannot exist without real ones, and
+  flagging someone against a rule they never agreed to is noise. The assistant
+  has raised this unprompted more than once.
+- **The connected MT5 account uses a master password**, not an investor one
+  (§3.4). Read-only is currently enforced by the bridge importing no order
+  function — structure, not credentials.
 
 ## Where things are
 
@@ -119,3 +141,4 @@ docs/                  MT5, backtest execution, orchestrator design, usage
 - [docs/BACKTEST_EXECUTION.md](docs/BACKTEST_EXECUTION.md) — the §33 deviation and how to revert it
 - [docs/ORCHESTRATOR.md](docs/ORCHESTRATOR.md) — why the OpenClaw runtime was replaced
 - [docs/USAGE.md](docs/USAGE.md) — what to ask, what is locked down, what is not
+- [docs/MCP_AUTH.md](docs/MCP_AUTH.md) — the MCP server authorizes nobody, and when that starts to matter

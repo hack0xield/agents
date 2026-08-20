@@ -62,7 +62,31 @@ OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:4b")
 
 # §26: how much history goes back to the model before compaction is needed.
-HISTORY_TURNS = int(os.environ.get("HISTORY_TURNS", "20"))
+#
+# Budgeted in tokens, not messages. A message row is a poor unit: one question
+# answered with two tool calls writes four rows, so a row count silently means
+# something different in a tool-heavy conversation than in a chatty one.
+#
+# 60k leaves ample room under a 200k context for the system prompt, the tool
+# schemas and the reply, and costs roughly a cent a turn at Sonnet input rates
+# once the prefix is cached.
+HISTORY_TOKEN_BUDGET = int(os.environ.get("HISTORY_TOKEN_BUDGET", "60000"))
+
+# History is read in chunks, newest first, until the token budget above is
+# spent. These two numbers are not a second budget: the chunk is how much is
+# read per round trip, and the ceiling exists so a pathological conversation
+# cannot be walked forever. Both are set well clear of where the token budget
+# lands, so neither decides what the model sees.
+HISTORY_CHUNK_ROWS = int(os.environ.get("HISTORY_CHUNK_ROWS", "200"))
+HISTORY_MAX_ROWS = int(os.environ.get("HISTORY_MAX_ROWS", "5000"))
+
+# Tool results are the bulk of a trading conversation and they go stale fast.
+# The most recent few stay in full; older ones are replaced by a stub that
+# keeps the shape of the exchange without the numbers. A balance from forty
+# minutes ago sitting in context is not context, it is a trap — the model can
+# read it as current, and SOUL.md's rule about only quoting figures you just
+# fetched is much harder to hold when a plausible stale one is right there.
+TOOL_RESULTS_KEPT_FULL = int(os.environ.get("TOOL_RESULTS_KEPT_FULL", "3"))
 
 WORKSPACE = REPO / "agent-workspace"
 PROMPT_VERSION = os.environ.get("PROMPT_VERSION", "soul-2026-08-20")

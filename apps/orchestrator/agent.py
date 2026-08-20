@@ -29,11 +29,109 @@ def _conversation(s: Session, user: models.User) -> models.Conversation:
     return conv
 
 
+def _est_tokens(content) -> int:
+    """Rough token count. Deliberately an estimate, not a tokenizer call.
+
+    Four characters per token is close enough for a budget whose job is to stay
+    well clear of the context limit, and it costs nothing. Being wrong by 20%
+    here changes how much history survives, not whether the request succeeds.
+    """
+    return len(json.dumps(content, default=str)) // 4
+
+
+def _has_tool_result(content) -> bool:
+    return isinstance(content, list) and any(
+        isinstance(b, dict) and b.get("type") == "tool_result" for b in content)
+
+
+def _stub_tool_results(content) -> list:
+    """Keep the block, drop the payload.
+
+    The tool_use_id has to survive: removing the block entirely would orphan
+    the assistant tool_use it answers, and the API rejects that. What goes is
+    the data, which is both the expensive part and the part that has since
+    gone stale.
+    """
+    out = []
+    for b in content:
+        if isinstance(b, dict) and b.get("type") == "tool_result":
+            b = {**b, "content": "[earlier result — superseded, ask again if needed]"}
+        out.append(b)
+    return out
+
+
 def _history(s: Session, conv: models.Conversation) -> list[dict]:
-    rows = s.scalars(select(models.Message).where(
-        models.Message.conversation_id == conv.id).order_by(
-        models.Message.created_at.desc()).limit(config.HISTORY_TURNS)).all()
-    return [{"role": m.role, "content": m.content} for m in reversed(rows)]
+    """Recent conversation, newest-first budgeted, oldest dropped.
+
+    Three rules, in order of importance:
+
+    1. The sequence must start clean. A `tool_result` whose matching
+       `tool_use` was trimmed away is a hard 400, and it would surface as an
+       intermittent failure that depends on where the boundary happened to
+       fall.
+    2. Conversation text is cheap and is what people mean by "remember what I
+       said". It survives as long as the budget allows.
+    3. Tool payloads are expensive and perishable. Only the newest few keep
+       their contents.
+    """
+    msgs: list[dict] = []
+    budget = config.HISTORY_TOKEN_BUDGET
+    seen_tool_results = 0
+    offset = 0
+    spent = False
+
+    # Newest first, in chunks: what gets dropped when the budget runs out is
+    # always the oldest thing present, and a conversation with thousands of
+    # rows is never fully loaded to build a window that will not hold it.
+    while not spent and offset < config.HISTORY_MAX_ROWS:
+        rows = s.scalars(select(models.Message).where(
+            models.Message.conversation_id == conv.id).order_by(
+            models.Message.created_at.desc())
+            .limit(config.HISTORY_CHUNK_ROWS).offset(offset)).all()
+        if not rows:
+            break
+        offset += len(rows)
+
+        for m in rows:
+            content = m.content
+            if _has_tool_result(content):
+                seen_tool_results += 1
+                if seen_tool_results > config.TOOL_RESULTS_KEPT_FULL:
+                    content = _stub_tool_results(content)
+
+            cost = _est_tokens(content)
+            if msgs and cost > budget:
+                spent = True
+                break
+            budget -= cost
+            msgs.append({"role": m.role, "content": content})
+
+    msgs.reverse()
+
+    # Rule 1. Anthropic wants the first message to be a user turn, and a user
+    # turn carrying tool_result blocks needs the assistant tool_use before it —
+    # which, at the front of a trimmed window, is exactly what is missing.
+    while msgs and (msgs[0]["role"] != "user" or _has_tool_result(msgs[0]["content"])):
+        msgs.pop(0)
+
+    return msgs
+
+
+def _mark_cache_breakpoint(messages: list[dict]) -> None:
+    """Cache everything up to the end of the last completed turn (§43).
+
+    Without this the whole history is re-read at full input price on every
+    turn, which is what made a small window look like the cheap option. Builds
+    new dicts rather than mutating: `content` is still the JSON the ORM loaded,
+    and editing it in place would mark the row dirty and write it back.
+    """
+    if not messages:
+        return
+    content = messages[-1].get("content")
+    if not (isinstance(content, list) and content and isinstance(content[-1], dict)):
+        return
+    last = {**content[-1], "cache_control": {"type": "ephemeral"}}
+    messages[-1] = {**messages[-1], "content": [*content[:-1], last]}
 
 
 def _system(user: models.User, accounts: list[dict], profile_md: str | None) -> list[dict]:
@@ -55,6 +153,7 @@ def run_turn(s: Session, user: models.User, text: str,
         config.WORKSPACE / "USER.md").is_file() else None
 
     messages = _history(s, conv)
+    _mark_cache_breakpoint(messages)
     messages.append({"role": "user", "content": [{"type": "text", "text": text}]})
     s.add(models.Message(conversation_id=conv.id, user_id=user.id,
                          role="user", content=[{"type": "text", "text": text}]))
