@@ -386,6 +386,28 @@ performed.
 
 ---
 
+## Provider verification — 2026-08-20
+
+Both live providers drive the agent correctly on the same prompt
+("what backtests do we have stored, and how is my account?"):
+
+| | tool calls | turn | cost |
+|---|---|---|---|
+| `anthropic` / claude-sonnet-5 | 2 | 13.0s | $0.073 |
+| `ollama` / gpt-oss:120b-cloud | 2 | 6.4s | $0 |
+| `ollama` / qwen3:4b (local CPU) | 5, looping | 353s | $0 |
+
+Anthropic's first turn wrote an 11,282-token cache entry; the second read it
+back at a tenth of the price. Ollama has no prompt caching, so a long system
+prompt is paid in full every turn — invisible while it is free, and the first
+thing to check if a paid Ollama tier is ever metered by tokens.
+
+qwen3:4b locally could drive the tool protocol but not follow SOUL.md: it
+called send_report three times and answered incoherently. Tool support and
+tool *discipline* are different things.
+
+---
+
 ## Regression log — 2026-08-20, minimal profile
 
 Switching `tools.profile` to `minimal` kept all seven tools and every probe
