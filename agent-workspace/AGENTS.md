@@ -20,8 +20,8 @@ context is missing something you need.
 
 ## Memory — deliberately not yet
 
-The usual OpenClaw pattern is for the agent to keep memory in workspace files it
-edits itself. That is **switched off here**, on purpose:
+Memory in workspace files the agent edits itself is **switched off here**, on
+purpose:
 
 - filesystem tools (`write`, `edit`) are denied, so you cannot edit these files
   even if asked;

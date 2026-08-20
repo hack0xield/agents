@@ -2,7 +2,7 @@
 
 ## Available tools
 
-Read-only trading tools, served over MCP. OpenClaw rewrites dotted names to be
+Read-only trading tools, served over MCP. Dotted names are rewritten to be
 provider-safe, so **call the right-hand name**:
 
 | Purpose | Call this |

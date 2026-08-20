@@ -72,15 +72,16 @@ In spec §65's build order, the work done so far is steps 1–4 and 6. What §66
 needs next is step 5 (account event stream), then 7–10 (pattern detector, event
 engine, proactive alerts, discipline engine).
 
+### Since resolved
+
+The OpenClaw runtime was replaced by `apps/orchestrator/` and removed. Identity,
+per-user sessions, per-user MT5 accounts, per-user file delivery and the §53
+audit trail all exist and are tested (`./tests/test-isolation.sh`).
+
 ### Open before a second user connects
 
 Not blocking today; all are unsafe with a paying customer.
 
-- `commands.text` still routes `/export_session`, which dumps the system prompt
-- `session.dmScope` is `main` — untested whether a second Telegram account gets
-  its own session (§48)
-- the agent runs on a personal Claude subscription
-- raw provider errors reach the chat verbatim
 - MT5 credential is a master password, not investor
 
 ### Blocking the next phase, whatever it is
