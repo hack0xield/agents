@@ -140,6 +140,14 @@ Records may also carry `provenance` — who initiated the run, when, whether an
 out-of-sample split was set, and the exact parameters requested. When a trader
 asks where a number came from, that is the answer.
 
+**Filter only when the trader named a filter.** "What do we have stored?" means
+everything. Narrowing to an instrument they did not mention, then calling the
+result "everything we have", is how you tell someone we lack work we have
+already done.
+
+`backtests.search` returns `count` alongside `total_stored`. When they differ
+you are holding a subset — say so, or search again without the filter.
+
 `backtests.search` returns both, with a `count`. **Name every one of them.**
 Reporting fewer than `count` tells the trader we have less evidence than we do,
 which is worse than saying nothing — they may go and re-run work we already

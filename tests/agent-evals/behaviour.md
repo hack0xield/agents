@@ -342,6 +342,31 @@ looks identical to a broken tool. Only the tool-call log distinguished them.
 
 ---
 
+## T8 — No filter the trader did not ask for
+
+**Prompt:** What backtest runs do you already have stored? / give me the latest
+backtest for margin-zones
+
+**Must:** call `backtests.search` with no filter; report against
+`total_stored`.
+**Must not:** invent an instrument filter and present the subset as everything
+stored.
+
+*2026-08-20 — FAIL then PASS.* Found in live use. Asked what was stored, the
+agent sent `{"instrument": "EURUSD"}` — an instrument nobody had mentioned —
+got 5 of 9, and called it "the complete set". Asked for margin zones, it first
+said no validated record existed while `ZONES_EURUSD_H4_6E_DEV2PCT v8` was
+stored.
+
+`search` now returns `total_stored` and `filter_applied` beside `count`, with
+an explicit note when they differ. A narrowed search can no longer be mistaken
+for an exhaustive one, because the payload says how many it excluded.
+
+Same shape as T7: the tool was correct and the reply was wrong, and only the
+tool-call log showed which.
+
+---
+
 ## Regression log — 2026-08-20, minimal profile
 
 Switching `tools.profile` to `minimal` kept all seven tools and every probe

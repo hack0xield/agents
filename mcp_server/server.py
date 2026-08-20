@@ -216,9 +216,16 @@ def backtests_search(
 ) -> dict:
     """Find stored backtests and studies, newest version of each.
 
-    Returns {"count": N, "patterns": [...]}. **Report all N.** If you name
-    fewer than `count`, you are telling the trader we have less evidence than
-    we do — the most expensive kind of wrong answer this system can give.
+    Returns {"count": N, "total_stored": M, "patterns": [...]}. **Report all
+    N.** If you name fewer than `count`, you are telling the trader we have
+    less evidence than we do — the most expensive kind of wrong answer this
+    system can give.
+
+    **Pass a filter only when the trader named one.** "What do we have stored?"
+    means everything; do not narrow it to an instrument they did not mention.
+    When `count` is less than `total_stored` you are looking at a subset, and
+    calling it "everything we have" is wrong — say what you filtered by, or
+    search again without the filter.
 
     Rows carry `validated`: true means human-reviewed, false means an
     exploratory run. Say which is which rather than omitting the exploratory
@@ -260,12 +267,26 @@ def backtests_search(
         }
         for r in rows
     ]
-    return {
+    total = len(runs.latest_versions())
+    applied = {k: v for k, v in
+               (("instrument", instrument), ("timeframe", timeframe)) if v}
+    out = {
         "count": len(patterns),
+        # A filtered search otherwise looks identical to an exhaustive one, and
+        # gets reported as "everything we have". Carrying the total makes the
+        # narrowing visible in the same payload.
+        "total_stored": total,
+        "filter_applied": applied or None,
         "validated_count": sum(1 for p in patterns if p["validated"]),
         "exploratory_count": sum(1 for p in patterns if not p["validated"]),
         "patterns": patterns,
     }
+    if applied and len(patterns) < total:
+        out["note"] = (
+            f"Filtered by {applied}. {total - len(patterns)} other stored "
+            f"pattern(s) did not match — this is not everything we have."
+        )
+    return out
 
 
 @mcp.tool(name="backtests.get_summary", annotations=READ_ONLY)
