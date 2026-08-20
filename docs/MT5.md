@@ -179,9 +179,25 @@ balance and positions as their own.
 That is the worst failure shape available here: not an error, but a confident
 wrong answer about someone's money. Fixed by removing the default entirely.
 Each request must carry `?ref=<credential_ref>`; a request without one is
-refused. Refs resolve in `mt5_bridge/accounts.json` (gitignored, mode 600) and
-match `trading_accounts.credential_ref` in Postgres — the database holds the
-ref, only that file holds a secret.
+refused. Refs resolve in `mt5_bridge/accounts.json` (gitignored, mode 600) and match
+`trading_accounts.credential_ref` in Postgres — the database holds the ref,
+only that file resolves it to a secret.
+
+An entry gives a password inline, or references one that already exists:
+
+```json
+"founder-demo": {
+  "login": 110119104,
+  "server": "MetaQuotes-Demo",
+  "password_from": {"file": "Z:\\…\\mt5-mcp-server\\config.json", "key": "password"}
+}
+```
+
+The pointer form matters. Copying an existing credential into a second file
+doubles the surface and guarantees drift the first time one is rotated — so the
+founder account references the backtester's config rather than duplicating it.
+Spec §47 wants these in a secrets manager; one file is the POC stand-in, and
+one is the operative word.
 
 The ref is a server-owned argument (`tools.USER_SCOPED_ARGS`), so a model that
 names someone else's ref has it discarded. A user with no connected account

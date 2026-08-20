@@ -1,20 +1,33 @@
 {
   "_comment": [
     "Credential store for the MT5 bridge. Copy to accounts.json and fill in.",
-    "accounts.json is gitignored and must never be committed (spec §47).",
+    "accounts.json is gitignored and must never be committed (spec \u00a747).",
     "",
     "Keys are credential_ref values, matching trading_accounts.credential_ref",
-    "in Postgres. The database stores the ref; only this file holds a secret,",
-    "and only the bridge process reads it.",
+    "in Postgres. The database stores the ref; only this file resolves it to a",
+    "secret. There is no default account: every request names a ref.",
     "",
-    "Use an INVESTOR (read-only) password. The bridge refuses an account whose",
-    "account_info reports trade_allowed=true unless allow_master is set."
+    "A password can be given inline, or referenced with password_from so a",
+    "credential that already exists somewhere is not copied. Paths are Windows",
+    "paths as seen by Wine (Z: is the Linux root).",
+    "",
+    "Use an INVESTOR (read-only) password. The bridge reports access as",
+    "MASTER_TRADING_ENABLED when the account can trade, so a wrong credential",
+    "is visible rather than silent (spec 3.4)."
   ],
-  "founder-demo": {
-    "login": 110119104,
-    "password": "…",
-    "server": "MetaQuotes-Demo",
-    "mt5_path": "C:\\Program Files\\MetaTrader 5\\terminal64.exe",
-    "allow_master": true
+  "example-inline": {
+    "login": 12345678,
+    "password": "your-investor-password",
+    "server": "FTMO-Demo2",
+    "mt5_path": "C:\\\\Program Files\\\\MetaTrader 5\\\\terminal64.exe"
+  },
+  "example-referenced": {
+    "login": 87654321,
+    "server": "ICMarkets-Live",
+    "mt5_path": "C:\\\\Program Files\\\\MetaTrader 5\\\\terminal64.exe",
+    "password_from": {
+      "file": "Z:\\\\path\\\\to\\\\existing\\\\config.json",
+      "key": "password"
+    }
   }
 }

@@ -86,12 +86,36 @@ _accounts: dict | None = None
 _connected_ref: str | None = None
 
 
+def _resolve_secret(entry: dict) -> dict:
+    """Fill in a password held somewhere else.
+
+    An entry may carry `password` inline, or point at an existing file with
+    `password_from: {file, key}`. The pointer form exists so a credential that
+    already lives somewhere is referenced rather than copied — two copies of a
+    secret is twice the surface, and they drift the moment one is rotated.
+    """
+    if entry.get("password"):
+        return entry
+    src = entry.get("password_from")
+    if not src:
+        return entry
+    try:
+        with open(src["file"]) as f:
+            data = json.load(f)
+    except (OSError, ValueError) as e:
+        raise RuntimeError(f"cannot read password_from {src.get('file')}: {e}")
+    value = data.get(src.get("key", "password"))
+    if not value:
+        raise RuntimeError(f"no '{src.get('key','password')}' in {src['file']}")
+    return {**entry, "password": value}
+
+
 def accounts() -> dict:
     global _accounts
     if _accounts is None:
         with open(ACCOUNTS) as f:
-            _accounts = {k: v for k, v in json.load(f).items()
-                         if not k.startswith("_")}
+            raw = {k: v for k, v in json.load(f).items() if not k.startswith("_")}
+        _accounts = {k: _resolve_secret(v) for k, v in raw.items()}
     return _accounts
 
 
