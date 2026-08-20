@@ -1,22 +1,54 @@
-"""Read-only HTTP bridge to a live MT5 terminal.
+"""A small HTTP server that reads one live MT5 account.
 
-The MetaTrader5 package is Windows-only — it talks to terminal64.exe over a
-named pipe — so it cannot be imported from the Linux interpreter that runs the
-MCP server. This process runs under the Wine Python that shares the MT5 prefix
-and exposes account state over loopback HTTP; the MCP server calls it.
+WHAT IT IS
+    A long-running process that connects to the MetaTrader 5 terminal and
+    answers three questions over loopback HTTP on 127.0.0.1:8082:
 
-THIS IS THE READ-ONLY FACADE (docs/MT5.md §1).
+        GET /health      is the terminal reachable?
+        GET /account     balance, equity, margin, connection state
+        GET /positions   currently open positions
+        GET /history     closed trades  (?days=30&symbol=XAUUSD)
 
-Only three MT5 functions are ever called: account_info, positions_get and
-history_deals_get. `order_send` and every other trading entry point is absent
-from this file — not disabled by a flag, absent. A flag defaults wrong once and
-then an assistant is trading someone's account; an unimported function cannot
-be called by any configuration mistake.
+    Nothing else talks to MT5. The MCP server (mcp_server/mt5_live.py) calls
+    these endpoints, and the `mt5.*` tools the assistant sees are thin wrappers
+    around them.
 
-Do not add a write endpoint here. If one is ever needed it belongs in a
-different process with a different trust story.
+WHY IT IS A SEPARATE PROCESS
+    The MetaTrader5 package is Windows-only — it talks to terminal64.exe over a
+    named pipe — so it cannot be imported by the Linux interpreter that runs
+    everything else. This file runs under the Wine Python that shares the MT5
+    prefix (~/.mt5). That is the only reason it exists as its own service.
 
-Run:  ./scripts/mt5-bridge.sh
+WHICH ACCOUNT, AND WHOSE CREDENTIALS
+    Exactly one, read at startup from:
+
+        ../trading/mt5-mcp-server/config.json   →  login / password / server
+
+    Currently login 110119104 on MetaQuotes-Demo. Every user of the assistant
+    sees this same account: the bridge has no notion of who is asking. That is
+    a real limitation, not a simplification — see docs/MT5.md before connecting
+    a second person to anything.
+
+    The password in that file is a MASTER password: account_info reports
+    trade_allowed = true. The product expects an investor (read-only) password
+    (spec §3.4), and onboarding should reject anything else.
+
+IT CANNOT TRADE
+    Only three MT5 functions are called: account_info, positions_get,
+    history_deals_get. `order_send` and every other trading entry point is
+    absent from this file — not disabled by a flag, absent. A flag defaults
+    wrong once and then an assistant is trading someone's account; an
+    unimported function cannot be called by any configuration mistake.
+
+    Do not add a write endpoint here. If one is ever needed it belongs in a
+    different process with a different trust story.
+
+RUN
+    ./scripts/mt5-bridge.sh
+
+    Takes ~3.5s if the terminal is not already running (it launches it), or a
+    few milliseconds if it is. The terminal keeps running after this process
+    exits.
 """
 
 import json
