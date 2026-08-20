@@ -83,6 +83,13 @@ except ValueError:
 check("user without an account sees NO_ACCOUNT",
       body.get("connection_state") == "NO_ACCOUNT", res.text[:160])
 
+# 7b. A file cannot be delivered to a chat the model names.
+res = tools.call_tool("backtests__send_report",
+                      {"pattern_id": "DAY_OPEN_XAUUSD_M15", "chat_id": "999999999"},
+                      scope={"chat_id": "111111111"})
+check("model-supplied chat_id is discarded",
+      "999999999" not in res.text, res.text[:160])
+
 # 7. Naming another user's credential_ref does not fetch it.
 res = tools.call_tool("mt5__get_account", {"credential_ref": "founder-demo"},
                       scope={})

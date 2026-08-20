@@ -85,9 +85,17 @@ def tool_scope(s: Session, user: models.User) -> dict:
     accounts = accounts_for(s, user.id)
     default = next((a for a in accounts if a["is_default"]), None) or (
         accounts[0] if accounts else None)
+    # Where this user's files are delivered. Without it, send_report falls
+    # back to a single hard-coded chat and one user's report lands in
+    # another's conversation.
+    ident = s.scalar(select(models.TelegramIdentity).where(
+        models.TelegramIdentity.user_id == user.id))
+    scope = {"chat_id": str(ident.chat_id)} if ident else {}
+
     if not default:
         # No account: the tools receive no ref and answer NO_ACCOUNT. They must
         # never inherit whichever account the terminal is currently on.
-        return {}
-    return {"account_id": default["id"],
+        return scope
+    return {**scope,
+            "account_id": default["id"],
             "credential_ref": default["credential_ref"]}

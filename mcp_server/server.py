@@ -642,7 +642,8 @@ def backtests_run_zone_study(
     annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False),
 )
 @_traced("backtests.send_report")
-def backtests_send_report(pattern_id: str, version: int | None = None) -> dict:
+def backtests_send_report(pattern_id: str, version: int | None = None,
+                          chat_id: str | None = None) -> dict:
     """Deliver a pattern's full run bundle to the trader as a Telegram file.
 
     Use this when someone asks for the files, a zip, or the report itself. The
@@ -652,17 +653,25 @@ def backtests_send_report(pattern_id: str, version: int | None = None) -> dict:
 
     Returns {"sent": true} on success. On failure say what failed; do not claim
     a file was sent.
+
+    `chat_id` is filled in by the server from the caller's own Telegram
+    binding. You do not choose it, and a value you pass is discarded.
     """
     r = runs.find(pattern_id, version)
     if r is None:
         return {"sent": False, "error": f"no such pattern: {pattern_id}"}
 
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    chat_id = os.environ.get("TELEGRAM_OWNER_CHAT_ID")
+    # chat_id is supplied by the server from the caller's own Telegram binding.
+    # The env var is a fallback for direct invocation without an orchestrator
+    # (CLI probes, the legacy OpenClaw path) — never a default for real users,
+    # because delivering one person's file to another's chat is a data leak
+    # dressed up as a feature.
+    chat_id = chat_id or os.environ.get("TELEGRAM_OWNER_CHAT_ID")
     if not token or not chat_id:
         return {"sent": False,
                 "error": "delivery not configured",
-                "detail": "TELEGRAM_BOT_TOKEN and TELEGRAM_OWNER_CHAT_ID must be set"}
+                "detail": "no destination chat for this caller"}
 
     run_id = r["backtest_run_id"]
     blob = _bundle_bytes(run_id)
