@@ -31,8 +31,6 @@ Build plan: [POC_PLAN.md](POC_PLAN.md).
 **Test mode.** No payments, no real MT5, no backtest engine. Phase 1 is a
 Telegram bot backed by Claude with the product's tool lockdown already in place.
 
-**Start here: [docs/RUNNING.md](docs/RUNNING.md)** — the whole system, what starts what, and in which order.
-
 ## Prerequisites
 
 Node ≥22.22.3 is required by OpenClaw. The system node here is v20.9.0, so a
@@ -194,9 +192,6 @@ anything and still only gets its own user's data.
 ```bash
 ./tests/test-isolation.sh         # spec §48, no API key needed
 ```
-
-Step-by-step walkthrough, including what each check defends and how to read the
-audit trail: **[docs/MULTIUSER_TESTING.md](docs/MULTIUSER_TESTING.md)**.
 
 Set `LLM_PROVIDER=stub` to run the whole path — pairing, routing, storage,
 audit — with no key and no spend. The stub answers are deliberately

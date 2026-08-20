@@ -11,4 +11,9 @@ if [ -f "$REPO/.env" ]; then
   source "$REPO/.env"
   set +a
 fi
-exec "$REPO/.venv/bin/python" "$REPO/mcp_server/server.py"
+# Not exec: keeping bash as the parent means ctrl-c has something to trap,
+# and the port gets released rather than held by an orphan.
+trap 'echo; echo "[mcp] stopping…"; kill "${PY_PID:-}" 2>/dev/null; exit 0' INT TERM
+"$REPO/.venv/bin/python" "$REPO/mcp_server/server.py" &
+PY_PID=$!
+wait "$PY_PID"

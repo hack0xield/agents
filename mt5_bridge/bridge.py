@@ -1,63 +1,25 @@
-"""A small HTTP server that reads one live MT5 account.
+"""HTTP server exposing one live MT5 account, read-only, on 127.0.0.1:8082.
 
-WHAT IT IS
-    A long-running process that connects to the MetaTrader 5 terminal and
-    answers three questions over loopback HTTP on 127.0.0.1:8082:
+    GET /health                  liveness, and which refs are configured
+    GET /accounts                configured credential refs
+    GET /account?ref=X           balance, equity, margin, connection state
+    GET /positions?ref=X         open positions
+    GET /history?ref=X&days=30   closed trades
 
-        GET /health      is the terminal reachable?
-        GET /account     balance, equity, margin, connection state
-        GET /positions   currently open positions
-        GET /history     closed trades  (?days=30&symbol=XAUUSD)
+Separate process because the MetaTrader5 package is Windows-only; this runs
+under the Wine Python sharing the MT5 prefix. mcp_server/mt5_live.py is the
+only caller.
 
-    Nothing else talks to MT5. The MCP server (mcp_server/mt5_live.py) calls
-    these endpoints, and the `mt5.*` tools the assistant sees are thin wrappers
-    around them.
+`ref` is required and has no default: serving whichever account happens to be
+connected is how one user reads another's positions. Refs resolve to
+credentials in accounts.json (gitignored) and match
+trading_accounts.credential_ref in Postgres.
 
-WHY IT IS A SEPARATE PROCESS
-    The MetaTrader5 package is Windows-only — it talks to terminal64.exe over a
-    named pipe — so it cannot be imported by the Linux interpreter that runs
-    everything else. This file runs under the Wine Python that shares the MT5
-    prefix (~/.mt5). That is the only reason it exists as its own service.
+Only account_info, positions_get and history_deals_get are called. No trading
+entry point is imported, so no configuration mistake can reach one. Do not add
+a write endpoint here.
 
-WHICH ACCOUNT
-    Every data request must name one, with ?ref=<credential_ref>. There is no
-    default and no fallback: a request without a ref is refused rather than
-    served from whichever account happens to be connected.
-
-    That matters because the alternative is the worst bug this system can have.
-    The bridge originally read one hardcoded login — the backtester's
-    data-fetch account — and would have answered /positions with that account's
-    trades for every user who asked, labelled as their own. A wrong answer that
-    looks right is worse than an error.
-
-    Refs map to credentials in accounts.json (gitignored, mode 600), and match
-    trading_accounts.credential_ref in Postgres. The database holds the ref;
-    only this file holds a secret.
-
-    Switching accounts re-initialises the terminal. Measured: ~3.5s cold, 4-7ms
-    when already connected to that account. Whether one terminal can sustain
-    many accounts by re-login is still untested — see docs/MT5.md §3b.
-
-    Use an INVESTOR (read-only) password. The bridge reports access as
-    MASTER_TRADING_ENABLED when account_info says trade_allowed, so a wrong
-    credential is visible rather than silent (spec §3.4).
-
-IT CANNOT TRADE
-    Only three MT5 functions are called: account_info, positions_get,
-    history_deals_get. `order_send` and every other trading entry point is
-    absent from this file — not disabled by a flag, absent. A flag defaults
-    wrong once and then an assistant is trading someone's account; an
-    unimported function cannot be called by any configuration mistake.
-
-    Do not add a write endpoint here. If one is ever needed it belongs in a
-    different process with a different trust story.
-
-RUN
-    ./scripts/mt5-bridge.sh
-
-    Takes ~3.5s if the terminal is not already running (it launches it), or a
-    few milliseconds if it is. The terminal keeps running after this process
-    exits.
+Details, including the untested multi-account question: docs/MT5.md
 """
 
 import json
@@ -336,4 +298,15 @@ if __name__ == "__main__":
         raise SystemExit(1)
     print(f"[bridge] {len(refs)} account(s): {', '.join(refs)}", flush=True)
     print("[bridge] no default account — every request must pass ?ref=", flush=True)
-    ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
+    print("[bridge] ctrl-c to stop", flush=True)
+
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    server.daemon_threads = True          # do not block exit on open requests
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+        mt5.shutdown()                    # release the terminal, leave it running
+        print("[bridge] stopped", flush=True)
