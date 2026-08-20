@@ -1,17 +1,21 @@
 """LLM provider behind an interface (spec §8).
 
-Two implementations:
+Three implementations:
 
     AnthropicProvider — the production path.
-    StubProvider      — deterministic, no API key, no spend. Exists so the
-                        adapter, identity, storage and audit paths can be
-                        tested end to end without credits, and so a missing
-                        key degrades into something obviously fake rather than
-                        something plausible.
+    OllamaProvider    — a local model, free and offline. Ollama speaks the
+                        Anthropic Messages API, so this is the same client
+                        pointed at a different base URL, with the features
+                        Ollama does not implement switched off.
+    StubProvider      — deterministic, no model at all. Exists so the adapter,
+                        identity, storage and audit paths can be tested
+                        without credits, and so a missing key degrades into
+                        something obviously fake rather than plausible.
 """
 
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -57,6 +61,13 @@ _PRICES = {
 
 
 def estimate_cost(model: str, turn: Turn) -> float | None:
+    """USD for one turn, or None when the model is not priced.
+
+    A local model costs nothing per token, so it records 0.0 rather than None —
+    zero is a measurement, None means unknown.
+    """
+    if turn.provider == "ollama":
+        return 0.0
     price = _PRICES.get(model)
     if not price:
         return None
@@ -71,27 +82,46 @@ def estimate_cost(model: str, turn: Turn) -> float | None:
     )
 
 
-class AnthropicProvider:
-    def __init__(self, model: str = config.MODEL):
+class MessagesAPIProvider:
+    """Anything speaking the Anthropic Messages API.
+
+    Ollama implements it too (v0.14+), which is why this is parameterised
+    rather than duplicated. `supports` gates the features a backend may not
+    have: Ollama has no prompt caching and no extended thinking, and sending
+    those fields anyway is at best ignored and at worst a 400.
+    """
+
+    def __init__(self, *, name: str, model: str, base_url: str | None = None,
+                 api_key: str | None = None, supports: set[str] | None = None,
+                 free: bool = False):
         import anthropic
-        self._anthropic = anthropic
-        self.client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY or None)
+        self.client = anthropic.Anthropic(
+            api_key=api_key or "unused", base_url=base_url,
+            timeout=float(os.environ.get("LLM_TIMEOUT", "300")),
+        )
+        self.name = name
         self.model = model
-        self.name = "anthropic"
+        self.supports = supports if supports is not None else {"thinking", "cache"}
+        self.free = free
+
+    def _system(self, system: list[dict]) -> list[dict]:
+        if "cache" in self.supports:
+            return system
+        # Strip cache_control rather than dropping the block: the text still
+        # has to be sent, it just will not be cached.
+        return [{k: v for k, v in b.items() if k != "cache_control"} for b in system]
 
     def generate(self, system, messages, tools) -> Turn:
+        kwargs = dict(
+            model=self.model, max_tokens=config.MAX_TOKENS,
+            system=self._system(system), messages=messages, tools=tools or [],
+        )
+        if "thinking" in self.supports:
+            kwargs["thinking"] = {"type": "adaptive"}
+
         t0 = time.perf_counter()
         try:
-            resp = self.client.messages.create(
-                model=self.model,
-                max_tokens=config.MAX_TOKENS,
-                system=system,
-                messages=messages,
-                tools=tools or [],
-                # §8: Sonnet 5 takes adaptive thinking; budget_tokens is
-                # removed on this model and returns 400.
-                thinking={"type": "adaptive"},
-            )
+            resp = self.client.messages.create(**kwargs)
         except Exception as e:
             return Turn(content=[], provider=self.name, model=self.model,
                         latency_ms=int((time.perf_counter() - t0) * 1000),
@@ -109,6 +139,24 @@ class AnthropicProvider:
             cache_write_tokens=getattr(u, "cache_creation_input_tokens", 0) or 0,
             latency_ms=int((time.perf_counter() - t0) * 1000),
         )
+
+
+def AnthropicProvider(model: str = config.MODEL):
+    return MessagesAPIProvider(
+        name="anthropic", model=model, api_key=config.ANTHROPIC_API_KEY or None,
+    )
+
+
+def OllamaProvider(model: str | None = None):
+    """A local model. Free, offline, and no prompt caching or thinking."""
+    return MessagesAPIProvider(
+        name="ollama",
+        model=model or config.OLLAMA_MODEL,
+        base_url=config.OLLAMA_BASE_URL,
+        api_key="ollama",              # required by the endpoint, not checked
+        supports=set(),                # no caching, no extended thinking
+        free=True,
+    )
 
 
 class StubProvider:
@@ -137,6 +185,9 @@ class StubProvider:
 
 
 def build_provider() -> LLMProvider:
-    if config.LLM_PROVIDER == "stub":
+    choice = config.LLM_PROVIDER
+    if choice == "stub":
         return StubProvider()
+    if choice == "ollama":
+        return OllamaProvider()
     return AnthropicProvider()

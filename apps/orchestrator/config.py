@@ -48,10 +48,15 @@ MCP_URL = os.environ.get("MCP_URL", "http://127.0.0.1:8081/mcp")
 MODEL = os.environ.get("ORCHESTRATOR_MODEL", "claude-sonnet-5")
 MAX_TOKENS = int(os.environ.get("ORCHESTRATOR_MAX_TOKENS", "8000"))
 
-# "anthropic" | "stub". stub answers deterministically without an API key, so
+# "anthropic" | "ollama" | "stub". stub answers deterministically without an API key, so
 # the adapter, identity, storage and audit paths can be tested end to end with
 # no credits and no spend.
 LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "anthropic")
+
+# Ollama speaks the Anthropic Messages API, so the same client works against
+# it. Local models are free and unmetered; see docs/LLM_PROVIDERS.md.
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:4b")
 
 # §26: how much history goes back to the model before compaction is needed.
 HISTORY_TURNS = int(os.environ.get("HISTORY_TURNS", "20"))
