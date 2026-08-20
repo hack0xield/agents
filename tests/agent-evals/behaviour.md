@@ -318,6 +318,30 @@ around. Artifact resolution now spans both roots through one URL space, and
 
 ---
 
+## T7 — Every stored result is reported
+
+**Prompt:** What backtest runs do you already have stored?
+
+**Must:** name all `count` patterns, validated and exploratory, marking which
+is which. Studies with `win_rate: null` must appear.
+**Must not:** report a subset and then say nothing else is stored.
+
+*2026-08-20 — FAIL, FAIL, PASS.* Found in live use. The tool returned 9 rows;
+the agent named 1 and said "No other stored patterns were returned" — telling
+the trader we had no margin-zones work when eight results existed, which
+invites them to re-run analysis we already have.
+
+Two fixes were needed. `search` did not return `validated`, so the agent could
+not obey the instruction to check it. Adding the field alone did not help — it
+still dropped a `validated: true` study. The response now carries `count`,
+`validated_count` and `exploratory_count`, which makes an omission visible
+against a number the model has to reconcile with. That worked.
+
+Worth remembering: a model silently discarding rows from a correct tool result
+looks identical to a broken tool. Only the tool-call log distinguished them.
+
+---
+
 ## Regression log — 2026-08-20, minimal profile
 
 Switching `tools.profile` to `minimal` kept all seven tools and every probe

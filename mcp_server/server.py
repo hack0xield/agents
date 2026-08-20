@@ -213,12 +213,23 @@ def mt5_get_connection_status(credential_ref: str | None = None) -> dict:
 def backtests_search(
     instrument: str | None = None,
     timeframe: str | None = None,
-) -> list[dict]:
-    """Find validated backtests matching an instrument and/or timeframe.
+) -> dict:
+    """Find stored backtests and studies, newest version of each.
 
-    Returns the newest version of each pattern. Returns an empty list when
-    nothing matches — that means we have no validated evidence for the
-    scenario, and never that it should be estimated.
+    Returns {"count": N, "patterns": [...]}. **Report all N.** If you name
+    fewer than `count`, you are telling the trader we have less evidence than
+    we do — the most expensive kind of wrong answer this system can give.
+
+    Rows carry `validated`: true means human-reviewed, false means an
+    exploratory run. Say which is which rather than omitting the exploratory
+    ones.
+
+    A row with `win_rate: null` is a structural study, not a missing value. It
+    has no entries or P&L so it cannot have a win rate, and it is still a
+    stored result worth reporting.
+
+    An empty list means we have no evidence for that scenario, and never that
+    it should be estimated.
 
     Args:
         instrument: e.g. "XAUUSD". Case-insensitive.
@@ -231,11 +242,12 @@ def backtests_search(
         rows = [r for r in rows if (r["timeframe"] or "").upper() == timeframe.upper()]
     # Headline fields only. The full record is several KB per pattern and most
     # questions are answered without it (spec §41).
-    return [
+    patterns = [
         {
             "pattern_id": r["pattern_id"],
             "version": r["version"],
             "versions_available": runs.version_count(r["pattern_id"]),
+            "validated": r["validated"],
             "kind": r["kind"],
             "instrument": r["instrument"],
             "timeframe": r["timeframe"],
@@ -248,6 +260,12 @@ def backtests_search(
         }
         for r in rows
     ]
+    return {
+        "count": len(patterns),
+        "validated_count": sum(1 for p in patterns if p["validated"]),
+        "exploratory_count": sum(1 for p in patterns if not p["validated"]),
+        "patterns": patterns,
+    }
 
 
 @mcp.tool(name="backtests.get_summary", annotations=READ_ONLY)

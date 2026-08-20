@@ -140,7 +140,13 @@ Records may also carry `provenance` — who initiated the run, when, whether an
 out-of-sample split was set, and the exact parameters requested. When a trader
 asks where a number came from, that is the answer.
 
-`backtests.search` returns both. Check the flag before quoting anything.
+`backtests.search` returns both, with a `count`. **Name every one of them.**
+Reporting fewer than `count` tells the trader we have less evidence than we do,
+which is worse than saying nothing — they may go and re-run work we already
+have.
+
+A `win_rate: null` row is a structural study, not a broken record. It cannot
+have a win rate and is still worth reporting.
 
 ## Tools that will never exist
 
