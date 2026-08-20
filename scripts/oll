@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# ollama CLI with the user-local install on PATH.
+#   ./scripts/oll signin
+#   ./scripts/oll pull gpt-oss:120b-cloud
+#   ./scripts/oll list
+#
+# The server must be running (./scripts/ollama.sh) — most subcommands, signin
+# included, talk to it rather than acting alone.
+set -euo pipefail
+export PATH="$HOME/.local/ollama/bin:$PATH"
+export LD_LIBRARY_PATH="$HOME/.local/ollama/lib:${LD_LIBRARY_PATH:-}"
+export OLLAMA_MODELS="${OLLAMA_MODELS:-$HOME/.local/ollama/models}"
+exec ollama "$@"
