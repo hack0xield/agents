@@ -82,7 +82,17 @@ def run_turn(s: Session, user: models.User, text: str,
 
         if turn.error:
             # The provider failed. Say so without pasting its internals into
-            # the chat — a billing message reached a user that way once.
+            # the chat — a billing message reached a user that way once. But a
+            # quota that resets is worth distinguishing from a broken service,
+            # because the useful response differs: wait, versus tell someone.
+            low = turn.error.lower()
+            if any(w in low for w in ("rate limit", "429", "quota", "exhausted",
+                                      "too many requests")):
+                return ("I've hit my usage limit for now. It resets on a timer — "
+                        "try again in a while.")
+            if any(w in low for w in ("credit", "billing", "payment", "402")):
+                return ("My account needs topping up before I can answer. "
+                        "Nothing wrong on your side.")
             return ("I can't reach the model right now. That's on my side, not "
                     "yours — try again shortly.")
 
