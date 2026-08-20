@@ -104,6 +104,24 @@ with db.session_scope() as s:
     s.get(models.User, s.scalar(select(models.TelegramIdentity.user_id).where(
         models.TelegramIdentity.telegram_user_id == ta_id))).disabled = False
 
+# Remove the users this run created. A test that leaves rows behind makes the
+# next person wonder whose data they are looking at — and they were right to.
+with db.session_scope() as s:
+    for tid in (ta_id, tb_id):
+        ident = s.scalar(select(models.TelegramIdentity).where(
+            models.TelegramIdentity.telegram_user_id == tid))
+        if ident is None:
+            continue
+        uid = ident.user_id
+        for table in (models.ToolCall, models.AgentRun, models.Message,
+                      models.Conversation, models.TradingAccount,
+                      models.PairingToken, models.TelegramIdentity):
+            for row in s.scalars(select(table).where(table.user_id == uid)).all():
+                s.delete(row)
+        user = s.get(models.User, uid)
+        if user is not None:
+            s.delete(user)
+
 print("\nFAILED" if fails else "\nAll green — no cross-user leakage")
 sys.exit(1 if fails else 0)
 PY
