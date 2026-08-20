@@ -96,33 +96,50 @@ def accounts() -> dict:
 def ensure_connected(ref: str) -> tuple[bool, str]:
     """Connect the terminal to the account named by `ref`.
 
-    Returns (ok, detail). Re-initialises when the terminal is on a different
-    account, which is what makes one terminal serve several — cheap when
-    already on the right one (measured 4-7 ms), ~3.5 s otherwise.
+    Attaches to a terminal that is already running before considering a
+    restart. Calling shutdown() first and then initialize() makes MT5 launch a
+    *new* terminal rather than reuse the live one — each bridge restart then
+    leaks another ~300 MB process that nobody started on purpose.
+
+    Returns (ok, detail).
     """
     global _connected_ref
 
     cred = accounts().get(ref)
     if cred is None:
         return False, f"unknown credential ref: {ref}"
+    want = int(cred["login"])
 
-    if _connected_ref == ref:
-        acc = mt5.account_info()
-        if acc is not None and int(acc.login) == int(cred["login"]):
-            return True, "already connected"
+    # Already attached to the right account: nothing to do (measured 4-7 ms).
+    acc = mt5.account_info()
+    if acc is not None and int(acc.login) == want:
+        _connected_ref = ref
+        return True, "already connected"
 
-    mt5.shutdown()
+    # Attach without tearing anything down first. If a terminal is running this
+    # reuses it; if not, MT5 launches one (~3.5 s).
     ok = mt5.initialize(
-        path=cred["mt5_path"], login=int(cred["login"]),
+        path=cred["mt5_path"], login=want,
         password=cred["password"], server=cred["server"],
         timeout=int(cred.get("timeout", 60)) * 1000,
     )
+
+    if not ok or (mt5.account_info() or _NoAcc()).login != want:
+        # Wrong account, or the attach failed. Now a switch is genuinely
+        # needed: drop the session and re-initialise.
+        mt5.shutdown()
+        ok = mt5.initialize(
+            path=cred["mt5_path"], login=want,
+            password=cred["password"], server=cred["server"],
+            timeout=int(cred.get("timeout", 60)) * 1000,
+        )
+
     if not ok:
         _connected_ref = None
         return False, f"initialize failed: {mt5.last_error()}"
 
     acc = mt5.account_info()
-    if acc is None or int(acc.login) != int(cred["login"]):
+    if acc is None or int(acc.login) != want:
         # Connected to something other than what was asked for. Serving it
         # would be exactly the wrong-account failure this design exists to
         # prevent, so refuse instead.
@@ -131,6 +148,10 @@ def ensure_connected(ref: str) -> tuple[bool, str]:
 
     _connected_ref = ref
     return True, "connected"
+
+
+class _NoAcc:
+    login = -1
 
 
 def iso(ts) -> str:
