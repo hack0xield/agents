@@ -193,6 +193,9 @@ anything and still only gets its own user's data.
 ./tests/test-isolation.sh         # spec §48, no API key needed
 ```
 
+Step-by-step walkthrough, including what each check defends and how to read the
+audit trail: **[docs/MULTIUSER_TESTING.md](docs/MULTIUSER_TESTING.md)**.
+
 Set `LLM_PROVIDER=stub` to run the whole path — pairing, routing, storage,
 audit — with no key and no spend. The stub answers are deliberately
 unmistakable.
