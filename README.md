@@ -171,6 +171,35 @@ a URL reachable anywhere.
 See **[docs/MT5.md](docs/MT5.md)** — what per-user account access unlocks, and
 the write-tool problem to solve before wiring the existing connector in.
 
+## Multi-user (apps/orchestrator)
+
+Our own agent runtime, replacing OpenClaw. It exists for one reason: **identity
+that the model cannot choose.** Under OpenClaw the tool server's only client
+was the gateway, so it could not tell users apart, and per-user scoping would
+have depended on an argument the model filled in.
+
+```bash
+docker compose up -d              # Postgres
+./scripts/mcp-server.sh           # tools on :8081
+./scripts/orchestrator.sh         # polls Telegram, routes by identity
+./scripts/pair.py "Name"          # prints a t.me deep link (spec §3.3)
+```
+
+Identity comes from the Telegram sender id. `tools.USER_SCOPED_ARGS` are
+overwritten from the database *after* the model speaks — it can ask for
+anything and still only gets its own user's data.
+
+```bash
+./tests/test-isolation.sh         # spec §48, no API key needed
+```
+
+Set `LLM_PROVIDER=stub` to run the whole path — pairing, routing, storage,
+audit — with no key and no spend. The stub answers are deliberately
+unmistakable.
+
+Every turn writes an `agent_runs` row with model, tokens, cache hits, cost and
+latency (spec §53), which is what `claude-cli` made impossible.
+
 ## Migrating off OpenClaw
 
 See **[docs/ORCHESTRATOR.md](docs/ORCHESTRATOR.md)** — what replaces the OpenClaw
