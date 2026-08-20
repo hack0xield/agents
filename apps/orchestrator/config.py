@@ -45,7 +45,10 @@ MCP_URL = os.environ.get("MCP_URL", "http://127.0.0.1:8081/mcp")
 
 # §8: Sonnet is the normal brain. Haiku for classification and summarisation
 # once those exist; Opus stays the exception.
-MODEL = os.environ.get("ORCHESTRATOR_MODEL", "claude-sonnet-5")
+# Each provider has its own model setting, so both stay configured and
+# switching is one line (LLM_PROVIDER) rather than two.
+MODEL = os.environ.get("ANTHROPIC_MODEL",
+                       os.environ.get("ORCHESTRATOR_MODEL", "claude-sonnet-5"))
 MAX_TOKENS = int(os.environ.get("ORCHESTRATOR_MAX_TOKENS", "8000"))
 
 # "anthropic" | "ollama" | "stub". stub answers deterministically without an API key, so
