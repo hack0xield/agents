@@ -31,6 +31,8 @@ Build plan: [POC_PLAN.md](POC_PLAN.md).
 **Test mode.** No payments, no real MT5, no backtest engine. Phase 1 is a
 Telegram bot backed by Claude with the product's tool lockdown already in place.
 
+**Start here: [docs/RUNNING.md](docs/RUNNING.md)** — the whole system, what starts what, and in which order.
+
 ## Prerequisites
 
 Node ≥22.22.3 is required by OpenClaw. The system node here is v20.9.0, so a
