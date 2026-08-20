@@ -43,6 +43,54 @@ cli/pair.py  ──►  Product Core (FastAPI + Postgres)
 
 ---
 
+## Status — 2026-08-20
+
+| Phase | State |
+|---|---|
+| 0 — Prerequisites | done |
+| 1 — Gateway talking to Telegram | done |
+| 2 — Pairing link (§3.3) | **deferred by decision.** §54 says founder-alpha needs no billing or onboarding; §65 puts Website/Auth at step 13. Pairing works manually with one CLI command. |
+| 3 — Identity and behaviour (§9) | done |
+| 4 — Tool layer (§10, §11) | done, and past the plan: `backtests.*` reads `trading/runs` live, `mt5.*` reads a live terminal through a read-only Wine bridge, and the fixtures are deleted |
+| 5 — Prove it holds (§61) | **partial.** 15 behavioural probes and two free tool-level suites exist. Cost logging does not — blocked on moving off `claude-cli`. |
+| Optional stretch — outbound proof (§30) | not started |
+
+Added beyond the original plan, on explicit decisions:
+
+- live MT5 through `mt5_bridge/` (docs/MT5.md)
+- backtest execution — a temporary deviation from §33 (docs/BACKTEST_EXECUTION.md)
+- file delivery into Telegram (`backtests.send_report`)
+
+### What the POC plan does *not* cover
+
+This plan was scoped to prove the assistant answers well when asked. It does
+not reach §66's definition of success, which is mostly proactive: morning
+brief, pattern alert, discipline alert, evening summary. Four of those five are
+unbuilt, and so is the deterministic event engine (§2) they all stand on.
+
+In spec §65's build order, the work done so far is steps 1–4 and 6. What §66
+needs next is step 5 (account event stream), then 7–10 (pattern detector, event
+engine, proactive alerts, discipline engine).
+
+### Open before a second user connects
+
+Not blocking today; all are unsafe with a paying customer.
+
+- `commands.text` still routes `/export_session`, which dumps the system prompt
+- `session.dmScope` is `main` — untested whether a second Telegram account gets
+  its own session (§48)
+- the agent runs on a personal Claude subscription
+- raw provider errors reach the chat verbatim
+- MT5 credential is a master password, not investor
+
+### Blocking the next phase, whatever it is
+
+- `agent-workspace/USER.md` has no risk limits. The discipline engine (§28)
+  cannot exist without them, and the agent has raised this unprompted three
+  times.
+
+---
+
 ## Phase 0 — Prerequisites (manual, ~20 min)
 
 1. Create the bot: Telegram → `@BotFather` → `/newbot`. Record token and bot username.
