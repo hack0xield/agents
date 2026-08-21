@@ -263,20 +263,29 @@ git clone git@github-trading:hack0xield/trading.git
 git clone git@github-agents:hack0xield/agents.git'
 ```
 
-## 9. Python environment for the backtester
+## 9. Python environments — **both repos**
+
+Two separate venvs. Missing the second one fails late and unhelpfully:
+`mcp-server.sh` and `orchestrator.sh` both die with
+`.venv/bin/python: No such file or directory`.
 
 ```bash
 ssh vultr-trading-app '
 export PATH="$HOME/.local/bin:$PATH"
+
 cd ~/trading_assistant/trading
 uv venv --python 3.13 .venv
 uv pip install --python .venv/bin/python -r requirements.txt
-.venv/bin/python -m pytest tests/ -q'
+.venv/bin/python -m pytest tests/ -q
+
+cd ~/trading_assistant/agents
+uv venv --python 3.13 .venv
+uv pip install --python .venv/bin/python anthropic sqlalchemy "psycopg[binary]" mcp'
 ```
 
-Expect **257 passed, 1 skipped** in about 1 s. (`trading/CLAUDE.md` still says
-122 — it is stale.) This suite needs no market data, so it passes before
-step 10.
+Expect **257 passed, 1 skipped** in about 1 s from the `trading` suite.
+(`trading/CLAUDE.md` still says 122 — it is stale.) It needs no market data,
+so it passes before step 10.
 
 ## 10. The data git does not carry
 
@@ -458,23 +467,79 @@ ssh vultr-trading-app 'chmod 600 ~/trading_assistant/agents/.env'
 `notes.txt` must **not** be copied — it is a plaintext dump of the same
 secrets and has no role on the server.
 
+## 13. Run it under systemd
+
+Three services in login shells die with the SSH connection and come back from
+nothing after a reboot. The units live in [`deploy/`](../deploy/) — see
+[deploy/README.md](../deploy/README.md) for why they are system units rather
+than user units.
+
+```bash
+ssh vultr-trading-app 'cd ~/trading_assistant/agents && git pull'
+ssh vultr-trading '
+cd /home/trading/trading_assistant/agents
+cp deploy/*.service deploy/*.target /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now xvfb mt5-terminal
+systemctl enable --now trading-assistant.target mt5-bridge mcp-server orchestrator'
+```
+
+Stop anything already running by hand first, or the services fail on a port
+that is still held.
+
+### Operating it
+
+```bash
+sudo systemctl restart trading-assistant.target   # all three app services, ~21 s
+sudo systemctl restart orchestrator               # one of them
+systemctl status mt5-bridge mcp-server orchestrator
+journalctl -u orchestrator -f
+```
+
+The target covers the **application** layer only. `xvfb` and `mt5-terminal`
+are deliberately outside it: restarting the terminal costs a login and a
+12,524-symbol sync, and bouncing the app should not pay for that. A verified
+`restart trading-assistant.target` left the terminal untouched — it had been
+up for over an hour and stayed up.
+
+### Verify
+
+```bash
+curl -s http://127.0.0.1:8082/health                    # bridge
+curl -s "http://127.0.0.1:8082/account?ref=<your-ref>"  # CONNECTED + balance
+ss -ltn | grep 8081                                     # mcp
+journalctl -u orchestrator -n 5 --no-pager              # "polling telegram…"
+systemctl show orchestrator -p Slice --value            # system.slice
+```
+
+`system.slice` is the part that answers "does it survive logout" — these are
+system units with no session dependency, so SSH disconnects are irrelevant to
+them and `loginctl enable-linger` is not needed.
+
+### Postgres
+
+`docker-compose.yml` carries `restart: unless-stopped`. A container created
+before that line was added keeps the old policy — `docker compose up -d`
+recreates it, and the named volume means the data survives:
+
+```bash
+docker inspect trading_assistant_db --format '{{.HostConfig.RestartPolicy.Name}}'
+```
+
 ## Open items
 
-Steps 1–11 are verified on this host, including a live MT5 account. Still to
-do:
+Steps 1–13 are verified on this host: a live MT5 account, all four free test
+suites green, and the whole stack under systemd. Still to do:
 
-- **Postgres is not yet running**, and the orchestrator's schema has never
-  been created on this host.
-- **No systemd units for the four application services.** They are still four
-  hand-run shell scripts, so a reboot loses everything.
 - **`runs/` has no distribution mechanism** — see step 10. It is seeded by
   rsync from one workstation, which is not a durable answer for the artifact
   the assistant's evidence hierarchy rests on.
-- **`.env` is not on the host yet** (step 12), so the orchestrator, the MCP
-  server and `send_report` cannot run. Only `mt5-mcp-server/config.json` has
-  been transferred, because MT5 could not be verified without it.
-- **The connected account still uses a master password.** `trade_allowed` is
-  `True` on this host, exactly as [MT5.md](MT5.md) §1 warns. It is a demo
-  account so nothing is at risk, but the credential now also exists on an
-  internet-facing box, which is a second reason to move to an investor
-  password.
+- **`trading_accounts.connection_state` has no writer.** It defaults to
+  `DISCONNECTED` and nothing updates it, so the column misleads anyone reading
+  the table directly. It no longer reaches the model — the prompt stopped
+  injecting it — but the snapshot poller ([MT5.md](MT5.md) §5 step 2) is what
+  would make the field honest.
+
+**Closed since first deployment:** the account now reports
+`access: investor_read_only` and `trade_allowed: false`, so the master-password
+finding in [MT5.md](MT5.md) §1 no longer applies to this host.
