@@ -27,3 +27,6 @@ experiments/*.out
 
 # MT5 credential store — never commit
 mt5_bridge/accounts.json
+
+# Instance credentials — never commit
+.vultr
