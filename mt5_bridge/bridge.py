@@ -95,8 +95,16 @@ def accounts() -> dict:
     except OSError:
         mtime = None
     if _accounts is None or mtime != _accounts_mtime:
-        with open(ACCOUNTS) as f:
-            raw = {k: v for k, v in json.load(f).items() if not k.startswith("_")}
+        try:
+            with open(ACCOUNTS) as f:
+                raw = {k: v for k, v in json.load(f).items() if not k.startswith("_")}
+        except FileNotFoundError:
+            # No store yet is a real state, not an error: a freshly deployed
+            # host has no connected accounts. Every ref then resolves to
+            # NO_ACCOUNT, which is what a user without an account should see.
+            # A store that exists but is malformed still raises — silently
+            # serving "no accounts" would hide a broken file.
+            raw = {}
         _accounts = {k: _resolve_secret(v) for k, v in raw.items()}
         _accounts_mtime = mtime
     return _accounts
@@ -327,10 +335,16 @@ if __name__ == "__main__":
     try:
         refs = sorted(accounts())
     except OSError as e:
+        # Unreadable rather than absent — a permissions problem is worth
+        # stopping for, because it looks identical to "no accounts" downstream.
         print(f"[bridge] cannot read {ACCOUNTS}: {e}", flush=True)
         print("[bridge] copy accounts.example.json to accounts.json", flush=True)
         raise SystemExit(1)
-    print(f"[bridge] {len(refs)} account(s): {', '.join(refs)}", flush=True)
+    if refs:
+        print(f"[bridge] {len(refs)} account(s): {', '.join(refs)}", flush=True)
+    else:
+        print(f"[bridge] no accounts configured ({ACCOUNTS} absent)", flush=True)
+        print("[bridge] mt5.* answers NO_ACCOUNT until one is added", flush=True)
     print("[bridge] no default account — every request must pass ?ref=", flush=True)
     print("[bridge] ctrl-c to stop", flush=True)
 
