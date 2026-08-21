@@ -1,0 +1,22 @@
+# Only one process may long-poll a Telegram bot token. If this is running,
+# nothing else may hold the same token — a second poller gets 409s and the two
+# split updates between them unpredictably.
+#
+# docker.service is ordering only: Postgres runs in compose, and the
+# orchestrator retries rather than requiring it at start.
+[Unit]
+Description=Trading assistant orchestrator (Telegram long poll)
+After=mcp-server.service docker.service
+Wants=mcp-server.service
+PartOf=trading-assistant.target
+
+[Service]
+User=trading
+Group=trading
+WorkingDirectory=/home/trading/trading_assistant/agents
+ExecStart=/home/trading/trading_assistant/agents/scripts/orchestrator.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=trading-assistant.target

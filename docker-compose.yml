@@ -3,6 +3,10 @@ services:
   db:
     image: postgres:16-alpine
     container_name: trading_assistant_db
+    # Comes back after a reboot without anyone logging in. The app services are
+    # systemd units; the database should not be the one thing left needing a
+    # hand.
+    restart: unless-stopped
     environment:
       POSTGRES_USER: trading
       POSTGRES_PASSWORD: trading

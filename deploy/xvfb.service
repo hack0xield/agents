@@ -1,0 +1,17 @@
+# terminal64.exe is a GUI application and a VPS has no X server, so MT5 needs a
+# virtual framebuffer permanently available. Nothing in the repo assumed this;
+# without it the terminal never becomes ready and mt5.initialize() hangs rather
+# than failing.
+[Unit]
+Description=Virtual framebuffer X server (headless display for MT5 under Wine)
+After=network.target
+
+[Service]
+User=trading
+Group=trading
+ExecStart=/usr/bin/Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

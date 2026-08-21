@@ -1,0 +1,24 @@
+# Wants, not Requires: an unreachable bridge is a state the system handles
+# honestly — mt5.* answers DISCONNECTED rather than an empty list — so a
+# terminal restart should not cascade into stopping the bridge.
+[Unit]
+Description=Read-only MT5 bridge (Wine, loopback :8082)
+After=mt5-terminal.service
+Wants=mt5-terminal.service
+PartOf=trading-assistant.target
+
+[Service]
+User=trading
+Group=trading
+Environment=WINEPREFIX=/home/trading/.mt5
+Environment=DISPLAY=:99
+Environment=WINEDEBUG=-all
+Environment=WINEDLLOVERRIDES=mscoree,mshtml=
+WorkingDirectory=/home/trading/trading_assistant/agents
+ExecStart=/home/trading/trading_assistant/agents/scripts/mt5-bridge.sh
+Restart=always
+RestartSec=10
+TimeoutStopSec=30
+
+[Install]
+WantedBy=trading-assistant.target

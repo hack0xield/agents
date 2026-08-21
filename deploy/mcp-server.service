@@ -1,0 +1,18 @@
+# The script sources .env itself for send_report's bot token, so no
+# EnvironmentFile here — one place reads that file, not two.
+[Unit]
+Description=Trading MCP server (loopback :8081)
+After=mt5-bridge.service
+Wants=mt5-bridge.service
+PartOf=trading-assistant.target
+
+[Service]
+User=trading
+Group=trading
+WorkingDirectory=/home/trading/trading_assistant/agents
+ExecStart=/home/trading/trading_assistant/agents/scripts/mcp-server.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=trading-assistant.target
