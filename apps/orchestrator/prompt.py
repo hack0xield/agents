@@ -36,9 +36,17 @@ def user_context(display_name: str | None, profile_md: str | None,
     if accounts:
         lines.append("\n## Connected accounts\n")
         for a in accounts:
+            # Durable facts only. connection_state is deliberately not here:
+            # the column defaults to DISCONNECTED and nothing ever writes to
+            # it, so every conversation opened by telling the model something
+            # false about the account. It then had to spend a tool call and a
+            # sentence correcting the record — or worse, might have believed
+            # it. Live state is mt5.get_connection_status's job, which answers
+            # authoritatively in milliseconds. `access` stays: it is a property
+            # of the credential, not of the session.
             lines.append(
                 f"- {a['nickname']} — login {a['login']} on {a['server']}, "
-                f"access {a['access']}, {a['connection_state']}"
+                f"access {a['access']}"
             )
     else:
         lines.append("\nNo trading account is connected yet.")
