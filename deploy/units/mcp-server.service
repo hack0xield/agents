@@ -1,0 +1,19 @@
+# The script sources .env itself for send_report's bot token, so no
+# EnvironmentFile for that — one place reads it, not two. Restart this after
+# any .env change: it reads the file once at exec, so a running process holds
+# stale credentials while still reporting healthy.
+[Unit]
+Description=Trading MCP server (loopback :8081)
+After=mt5-bridge.service
+Wants=mt5-bridge.service
+PartOf=trading-assistant.target
+
+[Service]
+EnvironmentFile=-%h/.config/trading-assistant/env
+WorkingDirectory=@REPO@
+ExecStart=@REPO@/scripts/mcp-server.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=trading-assistant.target

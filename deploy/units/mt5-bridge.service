@@ -1,0 +1,27 @@
+# Wants, not Requires: an unreachable bridge is a state the system handles
+# honestly — mt5.* answers DISCONNECTED rather than an empty list — so a
+# terminal restart must not cascade into stopping the bridge. On a host where
+# mt5-terminal.service is not installed, Wants= on a missing unit is ignored.
+[Unit]
+Description=Read-only MT5 bridge (Wine, loopback :8082)
+After=mt5-terminal.service
+Wants=mt5-terminal.service
+PartOf=trading-assistant.target
+
+[Service]
+EnvironmentFile=-%h/.config/trading-assistant/env
+WorkingDirectory=@REPO@
+ExecStart=@REPO@/scripts/mt5-bridge.sh
+Restart=always
+RestartSec=10
+TimeoutStopSec=30
+# The script stops the bridge and deliberately leaves the MT5 terminal up —
+# it is shared, slow to start, and not the bridge's to close. The default
+# control-group kill contradicts that: it SIGTERMs wineserver and winedevice
+# too, they do not exit, and the unit sits out TimeoutStopSec before being
+# SIGKILLed and marked failed. Only ever seen where the terminal is not a
+# separate unit, i.e. on a workstation.
+KillMode=process
+
+[Install]
+WantedBy=trading-assistant.target

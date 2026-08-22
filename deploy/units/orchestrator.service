@@ -1,0 +1,19 @@
+# Only one process may long-poll a Telegram bot token. If this runs here,
+# nothing else may hold the same token — a second poller gets 409s and the two
+# split updates between them unpredictably. That is the reason this stack must
+# not run locally and on the server at the same time.
+[Unit]
+Description=Trading assistant orchestrator (Telegram long poll)
+After=mcp-server.service
+Wants=mcp-server.service
+PartOf=trading-assistant.target
+
+[Service]
+EnvironmentFile=-%h/.config/trading-assistant/env
+WorkingDirectory=@REPO@
+ExecStart=@REPO@/scripts/orchestrator.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=trading-assistant.target

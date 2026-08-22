@@ -1,22 +1,17 @@
 # The terminal is kept running rather than launched on demand. mt5.initialize()
-# attaches to a live terminal in 5-7 ms, but hangs indefinitely when it has to
+# attaches to a live terminal in 5-7 ms but hangs indefinitely when it has to
 # launch one itself — the terminal starts fine, the client just never completes
 # its handshake with the instance it spawned. docs/MT5.md already noted that
-# terminal lifetime and connection lifetime are independent; headless makes that
-# the required design rather than a nice property.
+# terminal and connection lifetimes are independent; headless makes that the
+# required design rather than a nice property.
 [Unit]
 Description=MetaTrader 5 terminal under Wine (kept warm for the MT5 bridge)
 After=network-online.target xvfb.service
-Requires=xvfb.service
+Wants=xvfb.service
 
 [Service]
-User=trading
-Group=trading
-Environment=WINEPREFIX=/home/trading/.mt5
-Environment=DISPLAY=:99
-Environment=WINEDEBUG=-all
-Environment=WINEDLLOVERRIDES=mscoree,mshtml=
-WorkingDirectory=/home/trading
+EnvironmentFile=-%h/.config/trading-assistant/env
+WorkingDirectory=%h
 ExecStart=/usr/bin/wine "C:\\Program Files\\MetaTrader 5\\terminal64.exe"
 ExecStopPost=/usr/bin/wineserver -k
 Restart=always
@@ -24,4 +19,4 @@ RestartSec=15
 TimeoutStopSec=30
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
