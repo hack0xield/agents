@@ -50,6 +50,27 @@ by the installer and safe to edit afterwards:
 
 Changing that file needs a restart, not a reinstall.
 
+## Two things MT5 forces on the design
+
+**The terminal is supervised by a script, not by `wine` directly.**
+`ExecStart=wine terminal64.exe` cannot work: once MT5 has applied a LiveUpdate
+it re-execs itself as `terminal64.exe /skipupdate:<token> /portable` and the
+launching wine exits 0 after ~2 s. `Type=simple` reads that as the service
+dying and restarts forever while the terminal runs perfectly; `Type=forking`
+finds no main PID, because MT5 writes no PID file and the cgroup holds
+wineserver, two winedevice processes and the terminal. So
+[`scripts/mt5-terminal.sh`](../scripts/mt5-terminal.sh) launches it and blocks
+until it is gone, giving the unit a lifetime that matches the terminal's.
+
+A fresh install hides this — the first launch, before any update, does stay in
+the foreground.
+
+**The bridge uses `KillMode=process`.** Its script stops the bridge and leaves
+the terminal running on purpose. The default control-group kill contradicts
+that: it SIGTERMs wineserver and winedevice too, they do not exit, and the
+unit sits out `TimeoutStopSec` before being SIGKILLed and marked failed. Only
+shows up where the terminal is not a separate unit — i.e. on a workstation.
+
 ## Layering
 
 ```
