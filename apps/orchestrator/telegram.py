@@ -7,6 +7,7 @@ difference is confined to `poll()` and does not reach anything below it.
 from __future__ import annotations
 
 import json
+import re
 import time
 import urllib.parse
 import urllib.request
@@ -27,10 +28,32 @@ def _call(method: str, params: dict) -> dict:
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
 
+_FENCE = re.compile(r"```[a-zA-Z0-9+-]*\n?")
+_BOLD = re.compile(r"\*\*(.+?)\*\*", re.S)
+
+
+def plain(text: str) -> str:
+    """Strip markdown the transport cannot render.
+
+    sendMessage is called without parse_mode, so markup arrives as literal
+    characters. For emphasis that is merely ugly, but a backtick against a URL
+    breaks it: Telegram's link detector reads the trailing character as part of
+    the address, so `http://host/chart.html` is delivered as a link to
+    /chart.html%60 and 404s. The model has no way to know that, and asking it
+    to remember would not survive the next model, so it is removed here.
+
+    Not a markdown renderer — just the three forms that actually turn up.
+    """
+    text = _FENCE.sub("", text)
+    text = text.replace("`", "")
+    return _BOLD.sub(r"\1", text)
+
+
 def send(chat_id: int, text: str) -> bool:
     """Telegram caps a message at 4096 characters, so long replies are split
     rather than truncated — losing the end of an explanation is worse than
     sending two messages."""
+    text = plain(text)
     ok = True
     for chunk in [text[i:i + 3900] for i in range(0, max(len(text), 1), 3900)] or [""]:
         r = _call("sendMessage", {"chat_id": chat_id, "text": chunk,
