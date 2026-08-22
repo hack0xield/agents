@@ -1,0 +1,19 @@
+# Public read-only web view of backtest runs. A separate process from the MCP
+# server precisely so it can be exposed: docs/MCP_AUTH.md notes the MCP server
+# authorises nobody, so it must stay on loopback. This one has no tools in it.
+#
+# Bind address and public URL come from ~/.config/trading-assistant/env, which
+# install.sh writes: loopback on a workstation, 0.0.0.0 on the server.
+[Unit]
+Description=Backtest reports web view (:8083)
+PartOf=trading-assistant.target
+
+[Service]
+EnvironmentFile=-%h/.config/trading-assistant/env
+WorkingDirectory=@REPO@
+ExecStart=@REPO@/scripts/reports-server.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=trading-assistant.target

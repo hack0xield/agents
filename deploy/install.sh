@@ -14,7 +14,8 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UNIT_DIR="$HOME/.config/systemd/user"
 CONF_DIR="$HOME/.config/trading-assistant"
-APP_UNITS=(trading-assistant.target mt5-bridge.service mcp-server.service orchestrator.service)
+APP_UNITS=(trading-assistant.target mt5-bridge.service mcp-server.service
+           orchestrator.service reports-server.service)
 MT5_UNITS=(xvfb.service mt5-terminal.service)
 
 HEADLESS=0
@@ -30,6 +31,19 @@ else
     display="${DISPLAY:-:0}"
 fi
 
+# The reports view is the one thing meant to be reachable from outside, and
+# only on a server. A workstation keeps it on loopback: there is nothing to
+# reach it from, and binding wider on a laptop on someone's wifi is not a
+# default worth having.
+if [ "$HEADLESS" = 1 ]; then
+    reports_bind="0.0.0.0"
+    ip="$(ip -4 route get 1.1.1.1 2>/dev/null | grep -oP 'src \K\S+' || true)"
+    reports_url="http://${ip:-127.0.0.1}:8083"
+else
+    reports_bind="127.0.0.1"
+    reports_url="http://127.0.0.1:8083"
+fi
+
 mkdir -p "$UNIT_DIR" "$CONF_DIR"
 
 # Paths the units cannot express: WINEPREFIX differs per user, DISPLAY differs
@@ -41,6 +55,9 @@ DISPLAY=$display
 WINEPREFIX=$HOME/.mt5
 WINEDEBUG=-all
 WINEDLLOVERRIDES=mscoree,mshtml=
+REPORTS_BIND=$reports_bind
+REPORTS_PORT=8083
+PUBLIC_REPORTS_URL=$reports_url
 EOF
 
 for u in "${units[@]}"; do
@@ -60,6 +77,7 @@ systemctl --user daemon-reload
 echo "installed ${#units[@]} unit(s) for $USER"
 echo "  repo    $REPO"
 echo "  display $display"
+echo "  reports $reports_url (bind $reports_bind)"
 echo "  units   $UNIT_DIR"
 [ "$HEADLESS" = 1 ] && echo "  headless: xvfb + mt5-terminal included"
 echo

@@ -44,6 +44,7 @@ systemctl --user restart mt5-terminal
 ## Logs
 
 ```bash
+journalctl --user -u mt5-bridge -u mcp-server -u orchestrator -f
 journalctl --user -u orchestrator -f          # follow
 journalctl --user -u mcp-server -n 50         # recent
 journalctl --user -u mt5-bridge --since '10 min ago'

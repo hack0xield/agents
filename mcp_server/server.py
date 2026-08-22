@@ -98,6 +98,13 @@ _BT_RUNNER = _BT_ROOT / "scripts" / "run_backtest.py"
 HOST = "127.0.0.1"   # never bind wider: these tools expose account data
 PORT = 8081
 
+# Where a human opens a report. Served by apps/reports/server.py — a separate
+# process with no tools in it, which is what makes it safe to expose while this
+# one stays on loopback. Defaults to loopback so a workstation is honest about
+# links only working locally; the server sets it to its own address.
+REPORTS_URL = os.environ.get("PUBLIC_REPORTS_URL", "http://127.0.0.1:8083").rstrip("/")
+REPORTS_PUBLIC = not REPORTS_URL.startswith(("http://127.0.0.1", "http://localhost"))
+
 mcp = MCPServer("trading")
 
 # Declared on every tool. MCP carries read-only as a machine-readable hint, so
@@ -325,17 +332,23 @@ def backtests_get_report(pattern_id: str, version: int | None = None) -> dict:
         "backtest_run_id": run_id,
         "files": files,
         "artifacts": {
-            "chart_url": f"http://{HOST}:{PORT}/artifacts/{run_id}/chart.html",
-            "summary_url": f"http://{HOST}:{PORT}/artifacts/{run_id}/summary.json",
+            "report_url": f"{REPORTS_URL}/r/{run_id}/",
+            "chart_url": f"{REPORTS_URL}/r/{run_id}/chart.html",
+            "summary_url": f"{REPORTS_URL}/r/{run_id}/summary.json",
             "bundle_url": f"http://{HOST}:{PORT}/bundle/{run_id}.zip",
         },
         "artifact_note": (
-            "bundle_url is a zip of every file in the run. Offer it when someone "
-            "asks for the files themselves. These URLs are served from the "
-            "machine running this assistant: they open in a browser there, and "
-            "are not reachable from a phone or another host. You cannot attach "
-            "or send files, so hand over the link and say where it works — never "
-            "imply you attached anything."
+            "report_url opens the run's chart in a browser and is the thing to "
+            "hand someone who asks to see results — a link they can tap beats a "
+            "zip they have to unpack. "
+            + ("It is reachable from anywhere, including a phone. "
+               if REPORTS_PUBLIC else
+               "It only resolves on the machine running this assistant, so say "
+               "so rather than implying it works from a phone. ")
+            + "bundle_url is a zip of every file in the run; offer it when "
+            "someone wants the files themselves, and note it is loopback-only. "
+            "backtests.send_report is what actually delivers a zip to Telegram. "
+            "You cannot attach files yourself — never imply you attached anything."
         ),
         "available_series": _series_for(run_id),
         "limitations": r.get("limitations", []),
