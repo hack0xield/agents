@@ -1,85 +1,81 @@
 # systemd units
 
-System units rather than user units (`~/.config/systemd/user`), because
-`xvfb` and `mt5-terminal` must be ordered before the app services and a user
-unit cannot reliably `After=` a system one. The cost is `sudo` on every
-command; the benefit is that ordering actually holds, and nothing depends on
-`loginctl enable-linger`.
-
-Paths are absolute for the deployed layout — `trading` user, repo at
-`~/trading_assistant/agents`. `%h` only expands in user units.
+Runs the stack as systemd **user** units, on a workstation or the server.
 
 ## Install
 
 ```bash
 ./deploy/install.sh              # workstation — the three app services
 ./deploy/install.sh --headless   # server — also Xvfb and a warm MT5 terminal
-```
 
-Then, as the script prints:
-
-```bash
 systemctl --user enable --now xvfb mt5-terminal        # --headless only
 systemctl --user enable --now trading-assistant.target
 ```
 
-### Why user units
+## Status
 
-The workstation and the server differ in **both** the account and the path —
-`epershyn` at `~/Documents/trading_assistant/agents` versus `trading` at
-`~/trading_assistant/agents`. System units have to name both absolutely, so
-copying the server's units to a workstation fails with `status=217/USER`
-before it runs a single command: `User=trading` does not exist there.
-
-A user unit runs as whoever installs it, `%h` resolves per user, and
-`install.sh` substitutes the repo path. One procedure, both hosts.
-
-`install.sh` also enables **linger** — without it user units die at logout,
-which is the whole problem this exists to solve.
-
-### What differs between the two
-
-Everything host-specific lives in `~/.config/trading-assistant/env`, written
-by the installer and safe to edit afterwards:
-
-| | Workstation | Server |
-|---|---|---|
-| `DISPLAY` | the live session (`:0`/`:1`) | `:99`, served by `xvfb` |
-| `WINEPREFIX` | `~/.mt5` | `~/.mt5` |
-| Xvfb, warm terminal | not installed | installed |
-
-Changing that file needs a restart, not a reinstall.
-
-## Two things MT5 forces on the design
-
-**The terminal is supervised by a script, not by `wine` directly.**
-`ExecStart=wine terminal64.exe` cannot work: once MT5 has applied a LiveUpdate
-it re-execs itself as `terminal64.exe /skipupdate:<token> /portable` and the
-launching wine exits 0 after ~2 s. `Type=simple` reads that as the service
-dying and restarts forever while the terminal runs perfectly; `Type=forking`
-finds no main PID, because MT5 writes no PID file and the cgroup holds
-wineserver, two winedevice processes and the terminal. So
-[`scripts/mt5-terminal.sh`](../scripts/mt5-terminal.sh) launches it and blocks
-until it is gone, giving the unit a lifetime that matches the terminal's.
-
-A fresh install hides this — the first launch, before any update, does stay in
-the foreground.
-
-**The bridge uses `KillMode=process`.** Its script stops the bridge and leaves
-the terminal running on purpose. The default control-group kill contradicts
-that: it SIGTERMs wineserver and winedevice too, they do not exit, and the
-unit sits out `TimeoutStopSec` before being SIGKILLed and marked failed. Only
-shows up where the terminal is not a separate unit — i.e. on a workstation.
-
-## Layering
-
-```
-xvfb ─► mt5-terminal ─► mt5-bridge ─► mcp-server ─► orchestrator
-                                          ▲
-                        docker (postgres) ┘
+```bash
+systemctl --user status trading-assistant.target
+systemctl --user list-units 'mt5-*' 'mcp-*' 'orchestrator*' 'xvfb*'
+systemctl --user is-active mt5-bridge mcp-server orchestrator
 ```
 
-Every arrow except `xvfb ─► mt5-terminal` is `Wants=`, not `Requires=`. Each
-layer degrades honestly when the one beneath it is missing — `mt5.*` answers
-`DISCONNECTED` rather than an empty list — so a restart underneath must not
-cascade into stopping everything above.
+## Start, stop, restart
+
+```bash
+systemctl --user restart trading-assistant.target   # all three, ~22 s
+systemctl --user stop    trading-assistant.target
+systemctl --user start   trading-assistant.target
+
+systemctl --user restart orchestrator               # one service
+```
+
+Restart `mcp-server` after editing `.env` — it reads the file once at exec, so
+a running process holds stale values while still reporting healthy.
+
+The target covers the three app services. `xvfb` and `mt5-terminal` are
+outside it, so restarting the app does not cost a terminal login and a
+12,524-symbol sync:
+
+```bash
+systemctl --user restart mt5-terminal
+```
+
+## Logs
+
+```bash
+journalctl --user -u orchestrator -f          # follow
+journalctl --user -u mcp-server -n 50         # recent
+journalctl --user -u mt5-bridge --since '10 min ago'
+```
+
+## Health, without going through the model
+
+```bash
+curl -s http://127.0.0.1:8082/health          # bridge + known refs
+ss -ltn | grep -E '8081|8082|22346'           # mcp, bridge, MT5 IPC
+docker ps --filter name=trading_assistant_db  # postgres
+```
+
+## Configuration
+
+| | Where |
+|---|---|
+| Unit definitions | `deploy/units/*` — edit, then re-run `install.sh` |
+| Installed copies | `~/.config/systemd/user/` — generated, do not edit |
+| `DISPLAY`, `WINEPREFIX` | `~/.config/trading-assistant/env` — edit, then restart |
+| Secrets | `.env`, gitignored, read by the scripts |
+
+`install.sh` substitutes the repo path and enables linger. Re-run it after
+changing anything in `deploy/units/`.
+
+## Notes
+
+- **User units, not system units.** The two hosts differ in both account and
+  path, so `User=trading` with an absolute `/home/trading/...` fails on a
+  workstation with `status=217/USER`.
+- **One orchestrator at a time.** A Telegram token allows one long-poller; two
+  get 409s and split updates unpredictably.
+- MT5 forces two unobvious settings — `Type=simple` against a supervisor
+  script, and `KillMode=process` on the bridge. Both are explained in comments
+  in `deploy/units/mt5-terminal.service` and `mt5-bridge.service`.
