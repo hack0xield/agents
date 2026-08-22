@@ -10,25 +10,23 @@ After=network-online.target xvfb.service
 Wants=xvfb.service
 
 [Service]
-# Type=forking, because wine is a launcher and not the process. Once MT5 has
-# applied a LiveUpdate it re-execs itself as
-#   terminal64.exe /skipupdate:<token> /portable
-# and the wine that started it exits 0 after ~2 s. Under the default
-# Type=simple systemd reads that exit as the service dying, kills the cgroup,
-# and restarts forever — while the terminal it was meant to supervise is
-# running perfectly the whole time. Only visible after the first LiveUpdate,
-# which is why a fresh install looks fine.
-Type=forking
+# scripts/mt5-terminal.sh explains why this is not `wine terminal64.exe`
+# directly: wine is a launcher that exits once MT5 re-execs itself after a
+# LiveUpdate, and MT5 writes no PID file for Type=forking to follow. The
+# script's lifetime tracks the terminal's, so Type=simple and Restart=always
+# behave as intended.
+Type=simple
 EnvironmentFile=-%h/.config/trading-assistant/env
 WorkingDirectory=%h
-ExecStart=/usr/bin/wine "C:\\Program Files\\MetaTrader 5\\terminal64.exe"
+ExecStart=@REPO@/scripts/mt5-terminal.sh
 # Tolerant: wineserver -k exits non-zero when there is nothing left to kill,
 # which would otherwise mark a clean stop as failed.
 ExecStop=-/usr/bin/wineserver -k
 Restart=always
 RestartSec=15
 TimeoutStartSec=120
-TimeoutStopSec=30
+TimeoutStopSec=45
+KillMode=mixed
 
 [Install]
 WantedBy=default.target
