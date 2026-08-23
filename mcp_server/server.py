@@ -444,6 +444,29 @@ def backtests_list_strategies() -> dict:
     return {"strategies": proc.stdout.strip()}
 
 
+def _refresh_bars(symbol: str, timeframe: str, start: str | None) -> dict:
+    """Re-download the range a backtest is about to read.
+
+    The whole range, not a computed gap. A full pull is seconds, and both bar
+    stores merge and dedupe on write, so re-fetching is cheaper than the code
+    needed to work out what was missing — and it cannot leave a hole at the
+    seam the way an off-by-one in that arithmetic would.
+
+    Never fatal. A backtest on slightly stale bars is still a real backtest;
+    what is not acceptable is running on stale data and calling it current, so
+    the outcome is always returned for the model to pass on.
+    """
+    r = backtests_fetch_data(symbol=symbol, timeframes=timeframe, start=start)
+    if not r.get("ok"):
+        return {"refreshed": False, "why": r.get("error"),
+                "detail": r.get("detail"),
+                "note": ("Bars were NOT refreshed, so this ran on whatever was "
+                         "already stored. Say so when reporting the result "
+                         "rather than presenting it as current.")}
+    return {"refreshed": True, "stored": r.get("stored") or [],
+            "warnings": r.get("warnings") or []}
+
+
 @mcp.tool(
     name="backtests.fetch_data",
     annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False),
@@ -486,7 +509,15 @@ def backtests_fetch_data(
     # nightly batch job where waiting five minutes for the terminal costs
     # nothing; here someone is watching a chat. If the terminal is busy that
     # long, saying so beats making them wait.
-    lock = ["/usr/bin/flock", "-w", "30", "/tmp/mt5.lock"]
+    # -E 75 gives "could not get the lock" its own exit code, so it is
+    # distinguishable from the fetcher failing. Without it the lock case
+    # returns 1 with empty output and the model is told "fetch failed" with no
+    # detail — which is what happened when a wine process orphaned by an
+    # earlier timeout sat holding the lock.
+    #
+    # -w 30, not the 300 deploy/trading-signals.service uses: that is a nightly
+    # batch job where waiting is free, and here someone is watching a chat.
+    lock = ["/usr/bin/flock", "-w", "30", "-E", "75", "/tmp/mt5.lock"]
 
     fetch = lock + [str(_BT_ROOT / "scripts" / "fetch-mt5.sh"),
                     "--symbol", symbol, "--timeframe", timeframes,
@@ -501,9 +532,15 @@ def backtests_fetch_data(
                 "detail": "usually means the symbol is not on the broker's list, "
                           "or no terminal could be reached; on a headless host "
                           "check mt5-terminal.service is running"}
+    if p1.returncode == 75:
+        return {"ok": False, "error": "another MT5 operation holds the lock",
+                "detail": "waited 30s for /tmp/mt5.lock",
+                "note": "Try again shortly. If it persists, a stale wine "
+                        "process may be holding it."}
     if p1.returncode != 0:
         return {"ok": False, "error": "fetch failed", "symbol": symbol,
-                "detail": ((p1.stderr or p1.stdout) or "")[-600:]}
+                "detail": ((p1.stderr or p1.stdout) or "").strip()[-600:]
+                          or f"exit {p1.returncode}, no output"}
 
     convert = [str(_BT_PY), str(_BT_ROOT / "scripts" / "manage_data.py"), "convert",
                "--from", "csv://data/incoming", "--to", "parquet://data/bars"]
@@ -554,6 +591,7 @@ def backtests_run(
     start: str | None = None,
     end: str | None = None,
     intrabar: str = "conservative",
+    refresh: bool = True,
 ) -> dict:
     """Run a NEW backtest and return its metrics.
 
@@ -577,7 +615,15 @@ def backtests_run(
         start: first bar, "YYYY-MM-DD".
         end: last bar. Setting this is what holds later data out of sample.
         intrabar: conservative | optimistic | ohlc.
+        refresh: re-download this symbol and timeframe before running, so the
+            result covers up to now. On by default, and takes seconds. Pass
+            False only to re-run against exactly the data an earlier run used.
     """
+    # Before, not only after a "no bars" failure. A store last topped up a week
+    # ago silently produces a backtest that stops a week ago, and nothing in
+    # the numbers says so — which is the shape of wrong answer this service
+    # exists to avoid.
+    refreshed = _refresh_bars(symbol, timeframe, start) if refresh else None
     argv = [
         str(_BT_PY), str(_BT_RUNNER),
         "--strategy", strategy, "--symbol", symbol, "--timeframe", timeframe,
@@ -603,6 +649,8 @@ def backtests_run(
         # Point it at the tool that does the same thing, or it will either give
         # up or claim it ran something it did not.
         out = {"ok": False, "error": "backtest failed", "detail": detail}
+        if refreshed:
+            out["data_refresh"] = refreshed
         if "No " in detail and "bars in" in detail:
             out["error"] = "no bars for that symbol and timeframe"
             out["fix"] = (f"call backtests.fetch_data(symbol=\"{symbol}\", "
@@ -649,6 +697,7 @@ def backtests_run(
         "strategy": strategy, "symbol": symbol, "timeframe": timeframe,
         "params": params or {},
         "metrics": metrics,
+        "data_refresh": refreshed,
         "caveat": (
             "Not validated evidence. No review, and no out-of-sample split "
             "unless `end` was set. Report it as a run you just did."
