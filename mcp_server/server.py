@@ -445,6 +445,117 @@ def backtests_list_strategies() -> dict:
 
 
 @mcp.tool(
+    name="backtests.fetch_data",
+    annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False),
+)
+@_traced("backtests.fetch_data")
+def backtests_fetch_data(
+    symbol: str,
+    timeframes: str = "M15,H1,D1",
+    start: str | None = None,
+) -> dict:
+    """Download bars from the live MT5 terminal so a backtest has data to run on.
+
+    Call this when `backtests.run` fails with "No <symbol> <tf> bars" — that is
+    the only reason to call it. It is slow (minutes for years of M15), it talks
+    to the broker, and it writes to the bar store every backtest reads, so it
+    is not something to do speculatively or to "refresh" data that is already
+    there.
+
+    Say you are fetching before you start, because the trader will wait.
+
+    Two steps, both here so the store cannot be left half-populated: download
+    to the CSV staging area, then convert into the Parquet store the backtester
+    reads.
+
+    Args:
+        symbol: e.g. "GBPUSD". Must exist on the broker's symbol list.
+        timeframes: comma-separated, e.g. "M15,H1,D1".
+        start: first bar, "YYYY-MM-DD". Defaults to the fetcher's own default.
+    """
+    # Fail in seconds rather than thirty minutes. The fetcher launches the
+    # terminal itself when none is running, and mt5.initialize() hangs
+    # indefinitely in exactly that case — the terminal starts, the client never
+    # completes its handshake with the instance it spawned. A host without a
+    # warm terminal is a configuration problem to report, not something to sit
+    # in a subprocess timeout for.
+    # Checked by process, not by asking the bridge: the bridge answers /health
+    # from its own process and reports ok while the terminal is absent. What
+    # decides whether this hangs is whether a terminal is already running, so
+    # that is what gets checked. The bracketed dot keeps the pattern from
+    # matching this call's own command line.
+    warm = subprocess.run(["pgrep", "-f", "terminal64[.]exe"],
+                          capture_output=True, text=True).returncode == 0
+    health = mt5_live.status()
+    if not warm or health.get("connection_state") == "DISCONNECTED":
+        return {
+            "ok": False,
+            "error": "no live MT5 terminal to fetch from",
+            "detail": ("no terminal process is running" if not warm
+                       else health.get("detail") or "the bridge is not reachable"),
+            "note": ("Fetching needs a running terminal. Say the data cannot be "
+                     "downloaded right now — do not run the backtest on whatever "
+                     "bars happen to already be in the store and present it as "
+                     "the period that was asked for."),
+        }
+
+    # One terminal serves the bridge and this fetch. deploy/trading-signals.service
+    # takes the same lock for the same reason: without it the two intermittently
+    # kill each other's connection. fetch-mt5.sh does not take it itself.
+    lock = ["/usr/bin/flock", "-w", "300", "/tmp/mt5.lock"]
+
+    fetch = lock + [str(_BT_ROOT / "scripts" / "fetch-mt5.sh"),
+                    "--symbol", symbol, "--timeframe", timeframes,
+                    "--out", "csv://data/incoming", "--dump-spec"]
+    if start:
+        fetch += ["--start", start]
+    try:
+        p1 = subprocess.run(fetch, cwd=str(_BT_ROOT), capture_output=True,
+                            text=True, timeout=1800)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "fetch timed out after 30 minutes",
+                "detail": "the terminal may be down; check mt5.get_connection_status"}
+    if p1.returncode != 0:
+        return {"ok": False, "error": "fetch failed", "symbol": symbol,
+                "detail": ((p1.stderr or p1.stdout) or "")[-600:]}
+
+    convert = [str(_BT_PY), str(_BT_ROOT / "scripts" / "manage_data.py"), "convert",
+               "--from", "csv://data/incoming", "--to", "parquet://data/bars"]
+    try:
+        p2 = subprocess.run(convert, cwd=str(_BT_ROOT), capture_output=True,
+                            text=True, timeout=900)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "convert timed out",
+                "detail": "bars were downloaded but not loaded into the store"}
+    if p2.returncode != 0:
+        return {"ok": False, "error": "convert failed",
+                "detail": ((p2.stderr or p2.stdout) or "")[-600:],
+                "note": "bars were downloaded but are not queryable yet"}
+
+    out = p1.stdout or ""
+    stored = [l.strip() for l in out.splitlines() if "stored" in l and "bars" in l]
+    # The fetcher warns when the terminal's tick_value disagrees with the
+    # contract spec. That scales absolute P&L, so it must not be swallowed —
+    # a wrong dollar figure presented confidently is the failure this whole
+    # service is built to avoid.
+    warnings = [l.strip().lstrip("! ") for l in out.splitlines()
+                if l.strip().startswith("!")]
+
+    return {
+        "ok": True,
+        "symbol": symbol,
+        "timeframes": timeframes,
+        "stored": stored,
+        "warnings": warnings,
+        "note": ("Bars are in the store; backtests.run will now find them. "
+                 + ("Report these warnings when you quote absolute P&L from a "
+                    "backtest on this data. " if warnings else "")
+                 + "This data came from the broker just now and has had no "
+                   "review — it does not make a run on it validated evidence."),
+    }
+
+
+@mcp.tool(
     name="backtests.run",
     annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False),
 )
@@ -501,8 +612,16 @@ def backtests_run(
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": "backtest timed out after 600s"}
     if proc.returncode != 0:
-        return {"ok": False, "error": "backtest failed",
-                "detail": (proc.stderr or proc.stdout)[-600:]}
+        detail = (proc.stderr or proc.stdout)[-600:]
+        # The loader's message ends with a shell command the model cannot run.
+        # Point it at the tool that does the same thing, or it will either give
+        # up or claim it ran something it did not.
+        out = {"ok": False, "error": "backtest failed", "detail": detail}
+        if "No " in detail and "bars in" in detail:
+            out["error"] = "no bars for that symbol and timeframe"
+            out["fix"] = (f"call backtests.fetch_data(symbol=\"{symbol}\", "
+                          f"timeframes=\"{timeframe}\") first, then run again")
+        return out
 
     metrics, run_id = None, None
     try:
