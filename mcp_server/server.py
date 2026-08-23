@@ -479,30 +479,14 @@ def backtests_fetch_data(
     # completes its handshake with the instance it spawned. A host without a
     # warm terminal is a configuration problem to report, not something to sit
     # in a subprocess timeout for.
-    # Checked by process, not by asking the bridge: the bridge answers /health
-    # from its own process and reports ok while the terminal is absent. What
-    # decides whether this hangs is whether a terminal is already running, so
-    # that is what gets checked. The bracketed dot keeps the pattern from
-    # matching this call's own command line.
-    warm = subprocess.run(["pgrep", "-f", "terminal64[.]exe"],
-                          capture_output=True, text=True).returncode == 0
-    health = mt5_live.status()
-    if not warm or health.get("connection_state") == "DISCONNECTED":
-        return {
-            "ok": False,
-            "error": "no live MT5 terminal to fetch from",
-            "detail": ("no terminal process is running" if not warm
-                       else health.get("detail") or "the bridge is not reachable"),
-            "note": ("Fetching needs a running terminal. Say the data cannot be "
-                     "downloaded right now — do not run the backtest on whatever "
-                     "bars happen to already be in the store and present it as "
-                     "the period that was asked for."),
-        }
-
     # One terminal serves the bridge and this fetch. deploy/trading-signals.service
     # takes the same lock for the same reason: without it the two intermittently
     # kill each other's connection. fetch-mt5.sh does not take it itself.
-    lock = ["/usr/bin/flock", "-w", "300", "/tmp/mt5.lock"]
+    # -w 30, not the 300 that deploy/trading-signals.service uses. That is a
+    # nightly batch job where waiting five minutes for the terminal costs
+    # nothing; here someone is watching a chat. If the terminal is busy that
+    # long, saying so beats making them wait.
+    lock = ["/usr/bin/flock", "-w", "30", "/tmp/mt5.lock"]
 
     fetch = lock + [str(_BT_ROOT / "scripts" / "fetch-mt5.sh"),
                     "--symbol", symbol, "--timeframe", timeframes,
@@ -511,10 +495,12 @@ def backtests_fetch_data(
         fetch += ["--start", start]
     try:
         p1 = subprocess.run(fetch, cwd=str(_BT_ROOT), capture_output=True,
-                            text=True, timeout=1800)
+                            text=True, timeout=300)
     except subprocess.TimeoutExpired:
-        return {"ok": False, "error": "fetch timed out after 30 minutes",
-                "detail": "the terminal may be down; check mt5.get_connection_status"}
+        return {"ok": False, "error": "fetch timed out after 5 minutes",
+                "detail": "usually means the symbol is not on the broker's list, "
+                          "or no terminal could be reached; on a headless host "
+                          "check mt5-terminal.service is running"}
     if p1.returncode != 0:
         return {"ok": False, "error": "fetch failed", "symbol": symbol,
                 "detail": ((p1.stderr or p1.stdout) or "")[-600:]}
@@ -523,7 +509,7 @@ def backtests_fetch_data(
                "--from", "csv://data/incoming", "--to", "parquet://data/bars"]
     try:
         p2 = subprocess.run(convert, cwd=str(_BT_ROOT), capture_output=True,
-                            text=True, timeout=900)
+                            text=True, timeout=120)
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": "convert timed out",
                 "detail": "bars were downloaded but not loaded into the store"}
