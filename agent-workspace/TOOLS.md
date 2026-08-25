@@ -11,7 +11,7 @@ provider-safe, so **call the right-hand name**:
 | Currently open positions | `trading__mt5-get_positions` |
 | Closed trade history | `trading__mt5-get_trade_history` |
 | Is MT5 reachable? | `trading__mt5-get_connection_status` |
-| Find validated backtests | `trading__backtests-search` |
+| Find stored backtests | `trading__backtests-search` |
 | Full record for one pattern | `trading__backtests-get_summary` |
 | Stored report artifacts | `trading__backtests-get_report` |
 | Raw data behind a chart | `trading__backtests-get_series` |
@@ -66,7 +66,7 @@ backtest says 57%" is ambiguous across eight versions.
 ## How to use them
 
 - Asked what the evidence says → `trading__backtests-search` first. An empty
-  result means we have no validated evidence. It never means "estimate it".
+  result means we have no backtest for it. It never means "estimate it".
 - Quoting a metric → give the sample size with it, and the tested period.
 - `trading__backtests-search` returns headline metrics only. Call
   `trading__backtests-get_summary` for conditions, execution assumptions and
@@ -80,24 +80,27 @@ backtest says 57%" is ambiguous across eight versions.
 `trading__backtests-send_report`.** It delivers the run bundle into this chat as
 a real attachment.
 
-Do *not* answer that request with a URL. The artifact links below are
-`127.0.0.1` addresses served from the machine running this assistant — they open
-for someone sitting at that machine and are useless to anyone reading on a
-phone. Offering one where a file was asked for is a dead end dressed up as an
-answer.
+A URL is not a substitute for that: someone who asked for the files wants the
+files. Send them, then offer the link as well if it is useful.
 
 Only claim a file was sent when `send_report` returns `sent: true`. If it
 returns an error, say what failed.
 
 When someone asks for a chart, plot, or the underlying numbers:
 
-- `trading__backtests-get_report` gives a `chart_url`. It is served from the
-  machine running this assistant, so it opens for someone sitting at that
-  machine and is useless to someone on a phone. Offer it, say plainly where it
-  works, and do not imply you attached anything.
-- `trading__backtests-get_report` also gives a `bundle_url`. Mention it only as
-  an extra for someone working at the host machine — `send_report` is what
-  actually gets the files to them.
+- `backtests.run`, `backtests.run_zone_study` and
+  `trading__backtests-get_report` all return a `report_url` — the run's chart in
+  a browser. A fresh run carries its own link, so you never have to make a
+  second call to offer one.
+- **Whether that link works from a phone is not yours to guess.** The same
+  response carries `link_note` (`artifact_note` on `get_report`) saying which
+  it is: on the server the reports view is bound publicly and the link opens
+  anywhere; on a workstation it is loopback-only. Read the field and repeat
+  what it says. Declaring a working link useless is worse than saying nothing —
+  it withholds the thing they asked for.
+- `trading__backtests-get_report` also gives a `bundle_url`, which *is*
+  loopback-only. Mention it only as an extra for someone at the host machine —
+  `send_report` is what actually gets the files to them.
 - `trading__backtests-get_series` gives the **numbers the chart is drawn from** —
   pivots, envelopes, crossings, rollover, trades, equity. This is usually what
   "can you supply the plot data" actually means, so reach for it before
@@ -128,17 +131,23 @@ profitability invites exactly the wrong conclusion.
 backtest engine. Use `run_zone_study` for it rather than reporting that it
 cannot be run.
 
-## Validated vs exploratory
+## What a record carries about itself
 
-Every backtest record carries `validated`, which means **a human reviewed it**:
+`validated` records whether a human reviewed the run. It is **filing metadata,
+not a caveat** — see `SOUL.md`, *Running backtests*. Do not lead with it, do
+not use it to rank one result above another, and do not describe a fresh run as
+"exploratory". Answer from it if you are asked; otherwise leave it alone.
 
-- `true` — reviewed and kept. This is the evidence the product is built on.
-- `false` — nobody has checked it. Possibly a run you did seconds ago. Useful,
-  but not the same thing, and never presented as the same thing.
+Two fields *do* belong next to the numbers, because they describe the statistic
+rather than its paperwork:
 
-Records may also carry `provenance` — who initiated the run, when, whether an
-out-of-sample split was set, and the exact parameters requested. When a trader
-asks where a number came from, that is the answer.
+- **the trade count** — quote it with every rate, always;
+- **`out_of_sample`** — false means no end date held data back, so the result
+  is fitted to the whole period it was measured on. Say it once.
+
+Records may also carry `provenance` — who initiated the run, when, and the
+exact parameters requested. When a trader asks where a number came from, that
+is the answer.
 
 **Filter only when the trader named a filter.** "What do we have stored?" means
 everything. Narrowing to an instrument they did not mention, then calling the
@@ -148,7 +157,7 @@ already done.
 `backtests.search` returns `count` alongside `total_stored`. When they differ
 you are holding a subset — say so, or search again without the filter.
 
-`backtests.search` returns both, with a `count`. **Name every one of them.**
+**Name every one of them.**
 Reporting fewer than `count` tells the trader we have less evidence than we do,
 which is worse than saying nothing — they may go and re-run work we already
 have.

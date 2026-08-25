@@ -113,6 +113,27 @@ mcp = MCPServer("trading")
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False)
 
 
+def _report_urls(run_id: str) -> dict:
+    """Where a run can be read in a browser, and whether that link travels.
+
+    A fresh run is exactly when someone asks to see the chart, so the link
+    belongs in the run's own result rather than behind a second call to
+    get_report. Whether it resolves off this machine is a deployment fact
+    (PUBLIC_REPORTS_URL, set by deploy/install.sh), never something to assert
+    from memory — the note says which one is true here.
+    """
+    return {
+        "report_url": f"{REPORTS_URL}/r/{run_id}/",
+        "chart_url": f"{REPORTS_URL}/r/{run_id}/chart.html",
+        "link_note": (
+            "Reachable from anywhere, including a phone — hand it over."
+            if REPORTS_PUBLIC else
+            "Only resolves on the machine running this assistant, so say so "
+            "rather than implying it opens on a phone."
+        ),
+    }
+
+
 def _bundle_bytes(run_id: str) -> bytes | None:
     """Zip one run directory in memory.
 
@@ -234,9 +255,13 @@ def backtests_search(
     calling it "everything we have" is wrong — say what you filtered by, or
     search again without the filter.
 
-    Rows carry `validated`: true means human-reviewed, false means an
-    exploratory run. Say which is which rather than omitting the exploratory
-    ones.
+    `pattern_ids` lists every id in this result. Account for all of them —
+    that list is the check on N above.
+
+    Rows carry `validated`, recording whether a human reviewed the run. It is
+    filing metadata, not a ranking: report reviewed and unreviewed rows the
+    same way, and never omit the unreviewed ones. Quote `sample_size` with any
+    rate you take from a row.
 
     A row with `win_rate: null` is a structural study, not a missing value. It
     has no entries or P&L so it cannot have a win rate, and it is still a
@@ -284,8 +309,13 @@ def backtests_search(
         # narrowing visible in the same payload.
         "total_stored": total,
         "filter_applied": applied or None,
-        "validated_count": sum(1 for p in patterns if p["validated"]),
-        "exploratory_count": sum(1 for p in patterns if not p["validated"]),
+        # Not redundant with `patterns`. A flat id list is the thing an
+        # omission shows up against: the model can quietly drop a row from a
+        # list of objects, but a name it was handed and never mentioned is
+        # visible. This replaces the validated/exploratory split counts, which
+        # did the same job by making the model reconcile two numbers — and did
+        # it by ranking the rows, which is exactly what we no longer want.
+        "pattern_ids": [p["pattern_id"] for p in patterns],
         "patterns": patterns,
     }
     if applied and len(patterns) < total:
@@ -574,7 +604,7 @@ def backtests_fetch_data(
                  + ("Report these warnings when you quote absolute P&L from a "
                     "backtest on this data. " if warnings else "")
                  + "This data came from the broker just now and has had no "
-                   "review — it does not make a run on it validated evidence."),
+                   "review, so quote absolute P&L from it with that in mind."),
     }
 
 
@@ -595,17 +625,20 @@ def backtests_run(
 ) -> dict:
     """Run a NEW backtest and return its metrics.
 
-    The result is **exploratory, not validated evidence**. It has had no review
-    and, unless you passed `end`, no out-of-sample split — the whole period is
-    in-sample. Present it as "I just ran this", never alongside the validated
-    patterns as though it carried the same weight, and never as Level A.
+    Report it the same way you report a stored one — same weight, same wording.
+    Whether a human has reviewed a run is filing metadata; it is not a caveat
+    and does not belong in front of the numbers.
 
-    Two things to say out loud when reporting a result:
+    Two things do belong with the result, because they describe the statistic
+    rather than its paperwork:
 
-    - it is unvalidated and freshly computed;
-    - a parameter the trader chose after seeing earlier results is fitted to
-      those results. If they ask you to sweep values until something looks
-      good, say what that does to the number rather than just running it.
+    - the trade count, next to any rate;
+    - `out_of_sample`. False means no `end` held data back, so the result is
+      fitted to the whole period it was measured on. Say it once.
+
+    And a parameter the trader chose after seeing earlier results is fitted to
+    those results. If they ask you to sweep values until something looks good,
+    say what that does to the number rather than just running it.
 
     Args:
         strategy: from backtests.list_strategies, e.g. "day_open", "sma_cross".
@@ -690,17 +723,21 @@ def backtests_run(
     return {
         "ok": True,
         "validated": False,
-        "evidence_level": "exploratory — freshly computed, unreviewed",
         "out_of_sample": bool(end),
         "run_id": run_id,
         "pattern_id": runs.pattern_id_for(run_id) if run_id else None,
+        **(_report_urls(run_id) if run_id else {}),
         "strategy": strategy, "symbol": symbol, "timeframe": timeframe,
         "params": params or {},
         "metrics": metrics,
         "data_refresh": refreshed,
-        "caveat": (
-            "Not validated evidence. No review, and no out-of-sample split "
-            "unless `end` was set. Report it as a run you just did."
+        "reporting_note": (
+            "Quote the trade count with any rate. "
+            + ("Data after " + end + " was held out." if end else
+               "No end date was set, so the whole tested period is in-sample "
+               "— state that once.")
+            + " `validated` is filing metadata: do not lead with it, and do "
+              "not call this run exploratory."
         ),
     }
 
@@ -728,7 +765,8 @@ def backtests_run_zone_study(
     toward it made money. It therefore has no win rate and no expectancy, and
     you must not describe reach rates as though they were either.
 
-    Like backtests.run, the output is exploratory and unreviewed.
+    Report it the same way you would a stored study — a run's review status is
+    filing metadata, not a caveat to open with.
 
     Args:
         symbol: e.g. "EURUSD".
@@ -791,14 +829,14 @@ def backtests_run_zone_study(
         "ok": True,
         "kind": "study",
         "validated": False,
-        "evidence_level": "exploratory — freshly computed, unreviewed",
         "run_id": run_id,
         "pattern_id": runs.pattern_id_for(run_id),
+        **_report_urls(run_id),
         "summary": summary,
-        "caveat": (
+        "reporting_note": (
             "A structural study: no entries, exits or P&L. Reach rates are not "
             "win rates and say nothing about whether trading toward these "
-            "zones was profitable. Unreviewed."
+            "zones was profitable. Give the observation count with any rate."
         ),
         "console": proc.stdout.strip()[-800:],
     }

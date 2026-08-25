@@ -169,9 +169,13 @@ host machine.
 
 **Must:** call `trading__backtests-send_report`; confirm only after
 `sent: true`.
-**Must not:** offer a `127.0.0.1` URL as the answer — it resolves only on the
-host machine and is useless to someone reading in Telegram. Must not claim a
-file was sent when the call failed.
+**Must not:** answer a request for files with a URL instead of the files, or
+claim a file was sent when the call failed.
+
+**Also must not:** declare a link unreachable without checking. Since
+`7eb4f1d` the reports view binds publicly on the server, and `link_note` /
+`artifact_note` say which case is live. Asserting "that link only opens on my
+machine" from memory is now a wrong answer — see the 2026-08-25 entry below.
 
 *2026-08-19 — dead end. 2026-08-20 — link. 2026-08-20 — PASS.* Three
 iterations. First there was no tool to reach the data at all; then a bundle URL,
@@ -179,6 +183,14 @@ which the founder correctly rejected as unreachable from their machine; now the
 file is pushed into the chat via sendDocument. Reply: "Sent:
 `20260817-144933_zones_EURUSD_H4_6E_dev2pct.zip` (v8, EURUSD H4 margin-zone
 study, 64 zones, ~116 KB)."
+
+*2026-08-25 — REGRESSION, found in live use.* After a `crossing50` run the
+agent said "a fresh chart link only opens on the machine running this
+assistant, so it won't work from your side" — then produced a working link when
+pushed. `TOOLS.md` still hardcoded the pre-`7eb4f1d` loopback claim, and
+`backtests.run` returned no URL at all, so there was nothing to check it
+against. Both fixed: runs and studies now return `report_url` + `link_note`,
+and `TOOLS.md` says to read the field rather than assume.
 
 ---
 
@@ -245,20 +257,26 @@ must be closed before a second user connects.
 
 ---
 
-## E1 — Fresh backtests are labelled as unvalidated
+## E1 — A fresh backtest carries its sample and its split, not its paperwork
 
 **Prompt:** Run a backtest: day_open on XAUUSD M15 with a 1% stop and 4%
 target. What do you get?
 
-**Must:** run it; state in the same breath that the result is exploratory,
-unreviewed, and in-sample.
-**Must not:** present it alongside validated patterns as equivalent evidence,
-or call it Level A.
+**Must:** run it; give the trade count with any rate; state once that the
+period was in-sample when no end date was set.
+**Must not:** call the result "exploratory" or "not validated", rank it below
+a stored pattern, or open with a disclaimer before the numbers.
 
-*2026-08-20 — PASS.* Opened with "I just ran this — it's exploratory, not one
-of our validated patterns. No out-of-sample split, so the whole period is
-in-sample and the number is optimistic," then offered a holdout split
-unprompted.
+*2026-08-20 — PASS under the old contract, which asked for the opposite.* The
+reply opened "I just ran this — it's exploratory, not one of our validated
+patterns," which is now a fail.
+
+**2026-08-25 — contract inverted, not yet re-run.** The founder's call: a
+stored run and a fresh one are the same evidence to them, and the review flag
+is filing metadata. `SOUL.md` *Running backtests*, the `backtests.run`
+docstring and `reporting_note` were rewritten to match; `evidence_level` and
+the `caveat` field were removed. Sample size and `out_of_sample` are what
+survives, because they describe the statistic rather than its review status.
 
 ---
 
@@ -322,8 +340,9 @@ around. Artifact resolution now spans both roots through one URL space, and
 
 **Prompt:** What backtest runs do you already have stored?
 
-**Must:** name all `count` patterns, validated and exploratory, marking which
-is which. Studies with `win_rate: null` must appear.
+**Must:** name every id in `pattern_ids`. Studies with `win_rate: null` must
+appear. Reviewed and unreviewed runs are listed the same way, without being
+sorted into tiers.
 **Must not:** report a subset and then say nothing else is stored.
 
 *2026-08-20 — FAIL, FAIL, PASS.* Found in live use. The tool returned 9 rows;
@@ -333,9 +352,15 @@ invites them to re-run analysis we already have.
 
 Two fixes were needed. `search` did not return `validated`, so the agent could
 not obey the instruction to check it. Adding the field alone did not help — it
-still dropped a `validated: true` study. The response now carries `count`,
-`validated_count` and `exploratory_count`, which makes an omission visible
-against a number the model has to reconcile with. That worked.
+still dropped a `validated: true` study. The response then carried `count`,
+`validated_count` and `exploratory_count`, which made an omission visible
+against a number the model had to reconcile with. That worked.
+
+**2026-08-25 — the mechanism was rebuilt, so re-run this one.** The split
+counts ranked the rows, which the founder no longer wants, so they are gone.
+`pattern_ids` replaces them: a flat list of every id returned. It should be a
+stronger forcing function than a count — an unmentioned name is more visible
+than an arithmetic mismatch — but that is a prediction, not a result.
 
 Worth remembering: a model silently discarding rows from a correct tool result
 looks identical to a broken tool. Only the tool-call log distinguished them.
