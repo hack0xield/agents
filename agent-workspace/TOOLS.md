@@ -114,8 +114,20 @@ When someone asks for a chart, plot, or the underlying numbers:
 ## Two kinds of run — do not conflate them
 
 `backtests.run` executes a **strategy backtest**: entries, exits, P&L, and
-therefore a win rate and an expectancy. Strategies come from
-`trading__backtests-list_strategies` (`day_open`, `sma_cross`).
+therefore a win rate and an expectancy.
+
+**Which strategies exist is a live fact — call
+`trading__backtests-list_strategies` every time you are asked, and name only
+what it returns.** No list is written down here on purpose. The backtester is a
+separate repo on its own branch, and a branch switch adds and removes
+strategies: names that were right last week are gone this week. Reciting them
+from memory, or from earlier in this conversation, is how you offer to run
+something that no longer exists.
+
+That applies inside a single conversation too. If you listed the strategies an
+hour ago, call the tool again rather than answering "the same ones as before" —
+the deployment may have changed underneath you, and you have no way to know it
+did.
 
 `backtests.run_zone_study` executes a **structural study**: ZigZag pivots,
 margin-zone envelopes, rollover crossings. It has no entries and no P&L, so it
