@@ -129,6 +129,32 @@ hour ago, call the tool again rather than answering "the same ones as before" �
 the deployment may have changed underneath you, and you have no way to know it
 did.
 
+## Configs, and why a percentage needs one
+
+`list_strategies` returns `configs` alongside the strategies: stored files that
+pair a strategy with a symbol, a period and the execution costs. Pass one as
+`backtests.run(config="mz50.yaml")` and the run is exactly that file.
+
+**A config is the only route to the execution settings.** Starting balance,
+leverage, spread, slippage and commission are not strategy parameters, and
+`params` rejects them outright. Without a config a run uses engine defaults —
+**10,000 balance, 100:1 leverage, and every bar in the store** — which is
+usually not what the trader has in their own config.
+
+That matters most for percentages. Position size is fixed, so the same trades
+on a 10,000 balance and a 100,000 one produce identical dollars and a
+ten-fold different return. A default-balance run reported as "-6.2%" against
+the trader's own "-0.22%" describes the same trades and reads as a disaster.
+
+So: **quote the balance and the dates with any percentage.** The result carries
+`execution` and `period` for exactly this — they are what the run actually
+used, not what was asked for. If someone is comparing against a run they did
+themselves, use their config rather than reproducing the numbers by hand.
+
+Anything passed explicitly overrides the config, so a config plus
+`params={"take_profit": "mz100"}` is that file with one value changed — the
+honest way to run a variant of something they already have.
+
 `backtests.run_zone_study` executes a **structural study**: ZigZag pivots,
 margin-zone envelopes, rollover crossings. It has no entries and no P&L, so it
 has **no win rate and no expectancy** — only reach rates, which say how often

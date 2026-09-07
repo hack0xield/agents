@@ -113,6 +113,79 @@ mcp = MCPServer("trading")
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False)
 
 
+_CONFIG_DIR = _BT_ROOT / "configs" / "strategies"
+
+
+def _resolve_config(name: str) -> Path | None:
+    """A stored run config, by name, refusing anything outside its directory.
+
+    The name arrives from the model and is handed to a subprocess, so the
+    directory part is dropped outright rather than sanitised: `Path(name).name`
+    turns "../../.env" into ".env", which then fails the suffix and existence
+    checks. Resolving and comparing the parent is the belt to that braces.
+    """
+    candidate = Path(name).name
+    if not candidate.endswith((".yaml", ".yml", ".json")):
+        return None
+    path = (_CONFIG_DIR / candidate).resolve()
+    if path.parent != _CONFIG_DIR.resolve() or not path.is_file():
+        return None
+    return path
+
+
+def _list_configs() -> list[dict]:
+    """Stored run configs, with the first comment line as a description.
+
+    Read as text, not parsed: the description lives in a comment, which no
+    YAML loader would hand back, and this avoids a PyYAML dependency in a venv
+    that has never needed one.
+    """
+    out = []
+    if not _CONFIG_DIR.is_dir():
+        return out
+    for f in sorted(_CONFIG_DIR.iterdir()):
+        if f.suffix.lower() not in (".yaml", ".yml", ".json"):
+            continue
+        description = ""
+        try:
+            for line in f.read_text(encoding="utf-8").splitlines():
+                if line.startswith("#"):
+                    description = line.lstrip("# ").strip()
+                    break
+                if line.strip():
+                    break
+        except OSError:
+            pass
+        out.append({"config": f.name, "description": description})
+    return out
+
+
+def _config_values(path: Path) -> dict:
+    """symbol / timeframe / start from a config, loaded by the code that owns it.
+
+    Run through the backtester's own venv and loader rather than reimplemented
+    here: it is the thing that decides what a config file means, and a second
+    parser in this process would drift from it. Returns {} if anything fails —
+    the caller only needs these to aim the bar refresh, and a refresh that is
+    skipped is reported, not fatal.
+    """
+    script = (
+        "import json,sys;sys.path.insert(0,%r);from backtester import cli;"
+        "c=cli.load_config(%r);"
+        "print(json.dumps({k:c.get(k) for k in "
+        "('symbol','timeframe','start','end','strategy')}, default=str))"
+        % (str(_BT_ROOT), str(path))
+    )
+    try:
+        proc = subprocess.run([str(_BT_PY), "-c", script], cwd=str(_BT_ROOT),
+                              capture_output=True, text=True, timeout=60)
+        if proc.returncode == 0:
+            return json.loads(proc.stdout.strip() or "{}")
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    return {}
+
+
 def _report_urls(run_id: str) -> dict:
     """Where a run can be read in a browser, and whether that link travels.
 
@@ -461,9 +534,14 @@ def backtests_get_series(
 )
 @_traced("backtests.list_strategies")
 def backtests_list_strategies() -> dict:
-    """Strategies the backtester can run, with their parameters and defaults.
+    """Strategies the backtester can run, with their parameters and defaults,
+    and the stored run configs that combine them with a period and execution
+    costs.
 
-    Call this before backtests.run rather than guessing a parameter name.
+    Call this before backtests.run rather than guessing a parameter name — or a
+    config name, which `configs` lists. A config is the only way to reach the
+    execution settings (starting balance, leverage, spread, commission): those
+    are not parameters and cannot be passed through `params`.
     """
     proc = subprocess.run(
         [str(_BT_PY), str(_BT_RUNNER), "--list-strategies"],
@@ -471,7 +549,16 @@ def backtests_list_strategies() -> dict:
     )
     if proc.returncode != 0:
         return {"error": "could not list strategies", "detail": proc.stderr[-400:]}
-    return {"strategies": proc.stdout.strip()}
+    return {
+        "strategies": proc.stdout.strip(),
+        "configs": _list_configs(),
+        "configs_note": (
+            "Pass one of these as backtests.run(config=...) to run it exactly "
+            "as written — its symbol, timeframe, period and execution costs "
+            "included. Without a config, a run uses the engine defaults: "
+            "10,000 balance, 100:1 leverage, and every bar in the store."
+        ),
+    }
 
 
 def _refresh_bars(symbol: str, timeframe: str, start: str | None) -> dict:
@@ -614,16 +701,36 @@ def backtests_fetch_data(
 )
 @_traced("backtests.run")
 def backtests_run(
-    strategy: str,
-    symbol: str,
-    timeframe: str,
+    strategy: str | None = None,
+    symbol: str | None = None,
+    timeframe: str | None = None,
     params: dict | None = None,
     start: str | None = None,
     end: str | None = None,
-    intrabar: str = "conservative",
+    intrabar: str | None = None,
     refresh: bool = True,
+    config: str | None = None,
 ) -> dict:
     """Run a NEW backtest and return its metrics.
+
+    Two ways to call it, and the difference is visible in the result.
+
+    **With `config`** — a name from backtests.list_strategies `configs` — the
+    run is exactly what that file specifies: its symbol, timeframe, period and
+    execution costs. This is the only way to reach the execution settings;
+    starting balance, leverage, spread and commission are not strategy
+    parameters and `params` rejects them. Use it whenever someone asks to run
+    a stored setup, or to reproduce a run they did themselves.
+
+    **Without `config`** the run uses engine defaults — 10,000 balance, 100:1
+    leverage, every bar in the store — and `strategy`, `symbol` and `timeframe`
+    are all required. Those defaults are frequently not what the trader has in
+    their own config, so a percentage from such a run is not comparable to one
+    they produced; the returned `execution` and `period` say what was actually
+    used, and reporting a return without them invites exactly that mistake.
+
+    Anything passed explicitly overrides the config, so a config plus
+    `params={"take_profit": "mz100"}` is the file with one value changed.
 
     Report it the same way you report a stored one — same weight, same wording.
     Whether a human has reviewed a run is filing metadata; it is not a caveat
@@ -656,14 +763,54 @@ def backtests_run(
     # ago silently produces a backtest that stops a week ago, and nothing in
     # the numbers says so — which is the shape of wrong answer this service
     # exists to avoid.
-    refreshed = _refresh_bars(symbol, timeframe, start) if refresh else None
+    config_path = None
+    if config:
+        config_path = _resolve_config(config)
+        if config_path is None:
+            return {"ok": False, "error": f"no such config {config!r}",
+                    "available": [c["config"] for c in _list_configs()],
+                    "fix": "call backtests.list_strategies and use a name from `configs`"}
+    elif not (strategy and symbol and timeframe):
+        return {"ok": False,
+                "error": "need either config, or all of strategy, symbol and timeframe"}
+
+    # The refresh has to know what to download, and with a config the answer is
+    # in the file rather than the arguments. Explicit arguments still win —
+    # they are what the run will use.
+    stored = _config_values(config_path) if config_path else {}
+    fetch_symbol = symbol or stored.get("symbol")
+    fetch_timeframe = timeframe or stored.get("timeframe")
+    fetch_start = start or stored.get("start")
+
+    refreshed = None
+    if refresh:
+        if fetch_symbol and fetch_timeframe:
+            refreshed = _refresh_bars(fetch_symbol, fetch_timeframe, fetch_start)
+        else:
+            refreshed = {"refreshed": False,
+                         "why": "could not tell which symbol and timeframe to fetch",
+                         "note": ("Bars were NOT refreshed, so this ran on whatever "
+                                  "was already stored. Say so when reporting it.")}
+
     argv = [
         str(_BT_PY), str(_BT_RUNNER),
-        "--strategy", strategy, "--symbol", symbol, "--timeframe", timeframe,
-        "--intrabar", intrabar,
         "--save", "--runs-dir", "runs-adhoc", "--label", "adhoc",
         "--json", "--quiet",
     ]
+    # The config goes on first and every explicit flag folds over it: the
+    # runner's own merge only applies flags that were actually given, which is
+    # why intrabar is no longer passed unconditionally — doing so silently
+    # overrode a config that asked for something else.
+    if config_path:
+        argv += ["--config", str(config_path)]
+    if strategy:
+        argv += ["--strategy", strategy]
+    if symbol:
+        argv += ["--symbol", symbol]
+    if timeframe:
+        argv += ["--timeframe", timeframe]
+    if intrabar:
+        argv += ["--intrabar", intrabar]
     for k, v in (params or {}).items():
         argv += ["--param", f"{k}={v}"]
     if start:
@@ -712,18 +859,33 @@ def backtests_run(
                 "reviewed": False,
                 "out_of_sample": bool(end),
                 "requested": {
-                    "strategy": strategy, "symbol": symbol, "timeframe": timeframe,
-                    "params": params or {}, "start": start, "end": end,
-                    "intrabar": intrabar,
+                    "config": config, "strategy": strategy, "symbol": symbol,
+                    "timeframe": timeframe, "params": params or {},
+                    "start": start, "end": end, "intrabar": intrabar,
                 },
             }, indent=2) + "\n")
         except OSError:
             pass
 
+    # What was asked for and what ran are not the same thing once a config is
+    # involved, and the gap between them is exactly what made a tool run look
+    # incomparable to the same config run by hand. Read it back off the saved
+    # summary rather than restating the arguments.
+    saved = {}
+    if run_id:
+        try:
+            saved = json.loads((runs.ADHOC_DIR / run_id / "summary.json").read_text())
+        except (OSError, ValueError):
+            pass
+    effective_end = end or stored.get("end")
+
     return {
         "ok": True,
         "validated": False,
-        "out_of_sample": bool(end),
+        "out_of_sample": bool(effective_end),
+        "config": config,
+        "execution": saved.get("execution"),
+        "period": saved.get("period"),
         "run_id": run_id,
         "pattern_id": runs.pattern_id_for(run_id) if run_id else None,
         **(_report_urls(run_id) if run_id else {}),
@@ -733,11 +895,15 @@ def backtests_run(
         "data_refresh": refreshed,
         "reporting_note": (
             "Quote the trade count with any rate. "
-            + ("Data after " + end + " was held out." if end else
+            + (f"Data after {effective_end} was held out." if effective_end else
                "No end date was set, so the whole tested period is in-sample "
                "— state that once.")
-            + " `validated` is filing metadata: do not lead with it, and do "
-              "not call this run exploratory."
+            + " `execution` and `period` are what this run actually used. Give "
+              "the balance and the dates with any percentage: the same trades "
+              "on a different starting balance produce a different return, and "
+              "a default-balance run is not comparable to one from a config. "
+              "`validated` is filing metadata: do not lead with it, and do not "
+              "call this run exploratory."
         ),
     }
 
