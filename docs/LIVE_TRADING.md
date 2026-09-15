@@ -1,9 +1,8 @@
 # PLAN: the assistant runs the live trader
 
-**Status:** Phases 1–3 built and deployed to the server (2026-09-15). Phase 0
-is done except **Algo Trading, still off on the server terminal** — until it is
-enabled, a live start fails with the runner's "Algo Trading is off" refusal.
-Margin data is still stale. Phase 4 not started.
+**Status:** Phases 1–3 built and deployed to the server (2026-09-15), and
+Algo Trading enabled there: a live start can be made. Margin data is still
+stale. Phase 4 steps 2–4 not started.
 **Decisions:** founder, 2026-09-15.
 **The spec is unchanged and still describes the intended product.**
 
@@ -126,13 +125,13 @@ untested multi-account question.
 
 1. **Done.** Trading `4879052` and agents pulled on the server.
 2. **Done.** PyYAML 6.0.3 installed into the server's Wine Python.
-3. **Not done — the founder's to do.** Algo Trading is off in the server
-   terminal (`terminal_info().trade_allowed` false on 2026-09-15; the account
-   itself allows trading). Its `Config/common.ini` has no `[Experts]` section;
-   the workstation's has `Enabled=1` among its keys. Headless it has to be set
-   in the file with the terminal stopped — which drops the bridge and the bot
-   for a minute or two — then the terminal started again. The runner refuses a
-   live start while it is off, so nothing trades by accident in the meantime.
+3. **Done.** Algo Trading enabled in the server terminal, 2026-09-15: an
+   `[Experts]` section with the workstation's values (`Enabled=1`,
+   `Account=1`, …) added to `Config/common.ini` with the terminal stopped; the
+   original is kept beside it as `common.ini.bak-20260915-before-algo`.
+   `terminal_info().trade_allowed` is true on the shared demo login.
+   `Account=1` switches automated trading off if the terminal changes account —
+   a guard worth keeping on a terminal the bridge can re-log.
 4. **Not done.** `data/margins/margins.csv` on the server ends 2026-05-01. CME
    refuses scripted downloads, so this is the PDF from a browser and
    `scripts/margins.py import`, by hand. Until then the status warns.
@@ -286,9 +285,3 @@ BUY 0.1 · 1.1638 → 1.17004 · take profit · net +62.40
    Watch the first fill end to end: event → Telegram → `live.status`.
 
 ---
-
-## Open decisions
-
-| | Question | Recommendation |
-|---|---|---|
-| A | Enable Algo Trading on the server terminal (a short bridge outage)? | The founder's call; needed before a live start. |
