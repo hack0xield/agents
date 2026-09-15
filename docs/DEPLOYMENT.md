@@ -24,17 +24,16 @@ A 4 GB instance reports **3.3 GB usable**. That comfortably holds 1–3
 connected MT5 accounts; RAM binds at roughly 4–5. Disk is not the constraint —
 after full base setup plus both repos the box sits at 16 GB of 120 GB.
 
-Measured on the instance, and both **faster than the 12-core workstation** —
+Measured on the instance, and **faster than the 12-core workstation** —
 NVMe and a higher clock beat core count for this workload:
 
 | | Workstation | Instance |
 |---|---|---|
 | `day_open` backtest | 3.29 s / 274 MB | **1.66 s / 201 MB** |
-| Zone study | 0.92 s / 232 MB | **0.80 s / 166 MB** |
 
-Both pin a single core at ~99%. The 600 s and 900 s timeouts in
-`mcp_server/server.py` are guard rails with roughly 360× headroom, not
-expected runtimes.
+It pins a single core at ~99%. The 600 s backtest timeout in
+`mcp_server/server.py` is a guard rail with roughly 360× headroom, not an
+expected runtime.
 
 Watch `runs-adhoc/`: 4.5 MB per backtest, agent-initiated with no quota. Set a
 retention policy before running unattended.

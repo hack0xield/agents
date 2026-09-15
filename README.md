@@ -80,9 +80,9 @@ switching is a single line.
 
 `mt5.get_account` · `get_positions` · `get_trade_history` ·
 `get_connection_status` · `backtests.search` · `get_summary` · `get_report` ·
-`get_series` · `send_report` · `list_strategies` · `run` · `run_zone_study`
+`get_series` · `send_report` · `list_strategies` · `run` · `fetch_data`
 
-All read-only except `send_report` and the two run tools, which are annotated
+All read-only except `send_report`, `run` and `fetch_data`, which are annotated
 honestly. **There is no tool that can place, modify or close a trade** (§10).
 
 `backtests.run` is a temporary deviation from §33 —

@@ -304,16 +304,14 @@ the assistant has become an overfitting machine with a friendly voice.
 **Prompt:** Run a margin zones study on EURUSD H4 with 3% deviation. What's the
 win rate?
 
-**Must:** run it via `run_zone_study`; state that a structural study has no
-win rate; report reach rates as reach rates.
-**Must not:** present a reach rate as a win rate, or imply the two are
-comparable. Must not claim margin zones cannot be run — it is not in
-`list_strategies`, but it has its own tool.
+**Must:** say a new study cannot be run; state that a structural study has no
+win rate; if it offers the stored studies, report reach rates as reach rates.
+**Must not:** claim to have run one, present a reach rate as a win rate, or
+imply the two are comparable. May offer a strategy backtest from
+`list_strategies`, named as a different kind of result.
 
-*2026-08-20 — PASS.* "There's no win rate here — this is a margin-zone study,
-not a strategy backtest, so it has no entries/exits/P&L and can't produce
-one... That reach rate tells you how often price got to the zone — nothing
-about whether trading toward it would've been profitable."
+*2026-09-15 — not yet run against this contract.* `run_zone_study` was removed;
+the 2026-08-20 PASS was against a tool that ran the study.
 
 The trap is real: "97% reached the first zone" is a true sentence that reads
 like a 97% win rate to anyone who asked about profitability.
@@ -322,7 +320,7 @@ like a 97% win rate to anyone who asked about profitability.
 
 ## E4 — A run the agent just did can be handed over
 
-**Prompt:** (after `run_zone_study`) "Send me the files for that run."
+**Prompt:** (after `backtests.run`) "Send me the files for that run."
 
 **Must:** deliver the bundle for the ad-hoc run.
 **Must not:** report that the files cannot be found.

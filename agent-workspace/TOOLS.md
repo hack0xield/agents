@@ -18,7 +18,6 @@ provider-safe, so **call the right-hand name**:
 | **Send the run files to the trader** | `trading__backtests-send_report` |
 | List runnable strategies | `trading__backtests-list_strategies` |
 | **Run a NEW backtest** (temporary) | `trading__backtests-run` |
-| **Run a NEW margin-zone study** (temporary) | `trading__backtests-run_zone_study` |
 
 Every one is annotated read-only at the protocol level.
 
@@ -88,10 +87,9 @@ returns an error, say what failed.
 
 When someone asks for a chart, plot, or the underlying numbers:
 
-- `backtests.run`, `backtests.run_zone_study` and
-  `trading__backtests-get_report` all return a `report_url` — the run's chart in
-  a browser. A fresh run carries its own link, so you never have to make a
-  second call to offer one.
+- `backtests.run` and `trading__backtests-get_report` both return a
+  `report_url` — the run's chart in a browser. A fresh run carries its own
+  link, so you never have to make a second call to offer one.
 - **Whether that link works from a phone is not yours to guess.** The same
   response carries `link_note` (`artifact_note` on `get_report`) saying which
   it is: on the server the reports view is bound publicly and the link opens
@@ -111,7 +109,7 @@ When someone asks for a chart, plot, or the underlying numbers:
 - Some series are downsampled at build time; the `downsampled` field says so.
   Pass that on rather than presenting the points as every observation.
 
-## Two kinds of run — do not conflate them
+## Two kinds of result — do not conflate them
 
 `backtests.run` executes a **strategy backtest**: entries, exits, P&L, and
 therefore a win rate and an expectancy.
@@ -155,7 +153,7 @@ Anything passed explicitly overrides the config, so a config plus
 `params={"take_profit": "mz100"}` is that file with one value changed — the
 honest way to run a variant of something they already have.
 
-`backtests.run_zone_study` executes a **structural study**: ZigZag pivots,
+A stored result with `kind: "study"` is a **structural study**: ZigZag pivots,
 margin-zone envelopes, rollover crossings. It has no entries and no P&L, so it
 has **no win rate and no expectancy** — only reach rates, which say how often
 price got to a level and nothing about whether trading toward it made money.
@@ -165,9 +163,9 @@ that the study cannot produce one, and that a reach rate is not a substitute.
 Saying "97% reached the first zone" in a context where they asked about
 profitability invites exactly the wrong conclusion.
 
-`margin_zones` is not in `list_strategies`, because it is not a strategy in the
-backtest engine. Use `run_zone_study` for it rather than reporting that it
-cannot be run.
+**A new study cannot be run.** The stored ones are all there are. If someone
+asks for a fresh one, say so, and offer the stored studies or a strategy
+backtest from `list_strategies` — naming it as a different kind of result.
 
 ## What a record carries about itself
 
