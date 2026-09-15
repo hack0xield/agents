@@ -62,6 +62,25 @@ def send(chat_id: int, text: str) -> bool:
     return ok
 
 
+SENT, RETRY, REFUSED = "sent", "retry", "refused"
+
+
+def deliver(chat_id: int, text: str) -> str:
+    """Send like `send`, and say whether a failure is worth trying again.
+
+    REFUSED is Telegram's own 400 or 403 — the chat is gone, or the user
+    blocked the bot — which no retry will change. Anything else that fails,
+    a network error, a rate limit, Telegram's own trouble, is RETRY.
+    """
+    text = plain(text)
+    for chunk in [text[i:i + 3900] for i in range(0, max(len(text), 1), 3900)] or [""]:
+        r = _call("sendMessage", {"chat_id": chat_id, "text": chunk,
+                                  "disable_web_page_preview": "true"})
+        if not r.get("ok"):
+            return REFUSED if r.get("error_code") in (400, 403) else RETRY
+    return SENT
+
+
 def poll(offset: int | None, timeout: int = 50) -> tuple[list[dict], int | None]:
     params = {"timeout": timeout}
     if offset is not None:

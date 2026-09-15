@@ -1,0 +1,38 @@
+# One live trader per run config: live-trader@mz50 trades
+# trading/configs/strategies/mz50.yaml on the shared test account in
+# trading/mt5-mcp-server/config.json (docs/LIVE_TRADING.md). The live.start and
+# live.stop MCP tools enable and disable instances, after writing the
+# instance's env file.
+#
+# Not part of trading-assistant.target: restarting the assistant must never
+# stop trading. Installed only with --headless, beside the terminal it trades
+# through — a workstation runner on the same account would fight the server's.
+[Unit]
+Description=Live trader for trading config %i (Wine)
+After=mt5-terminal.service
+Wants=mt5-terminal.service
+# A runner that cannot start (Algo Trading off, terminal logged out) fails the
+# same way every time. Three tries in half an hour, then it stays failed
+# instead of announcing the same failure to every chat each minute.
+StartLimitIntervalSec=1800
+StartLimitBurst=3
+
+[Service]
+Type=simple
+EnvironmentFile=-%h/.config/trading-assistant/env
+# LIVE_CONFIG and LIVE_ARGS, written by live.start. Required: without it the
+# instance does not know what to trade.
+EnvironmentFile=%h/.config/trading-assistant/live/%i.env
+WorkingDirectory=@TRADING@
+ExecStart=@TRADING@/scripts/run-live.sh --config ${LIVE_CONFIG} $LIVE_ARGS
+# run-live.sh stops cleanly on SIGTERM: it creates the runner's stop file and
+# waits up to 60 s while resting orders are withdrawn and the final state is
+# written. The default control-group kill would signal the Wine Python at the
+# same moment and skip all of that.
+KillMode=mixed
+TimeoutStopSec=90
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=default.target

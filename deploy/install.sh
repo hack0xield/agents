@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Install the stack as systemd *user* units, for this user and this checkout.
 #
-#   ./deploy/install.sh              workstation: the three app services
-#   ./deploy/install.sh --headless   server: also Xvfb and a warm MT5 terminal
+#   ./deploy/install.sh              workstation: the app services
+#   ./deploy/install.sh --headless   server: also Xvfb, a warm MT5 terminal and
+#                                    the live-trader@ template
 #
 # User units rather than system units because the two environments differ in
 # both the account and the path — `User=trading` and an absolute
@@ -12,11 +13,16 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# The backtester checkout sits beside this one, as the MCP server expects.
+TRADING="$(cd "$REPO/../trading" 2>/dev/null && pwd || echo "$REPO/../trading")"
 UNIT_DIR="$HOME/.config/systemd/user"
 CONF_DIR="$HOME/.config/trading-assistant"
 APP_UNITS=(trading-assistant.target mt5-bridge.service mcp-server.service
-           orchestrator.service reports-server.service)
-MT5_UNITS=(xvfb.service mt5-terminal.service)
+           orchestrator.service reports-server.service live-notify.service)
+# live-trader@ trades through this host's terminal, so it goes where the
+# terminal does. A workstation copy would trade the same shared account as the
+# server's, and each would close the other's positions as leftovers.
+MT5_UNITS=(xvfb.service mt5-terminal.service live-trader@.service)
 
 HEADLESS=0
 [ "${1:-}" = "--headless" ] && HEADLESS=1
@@ -44,7 +50,8 @@ else
     reports_url="http://127.0.0.1:8083"
 fi
 
-mkdir -p "$UNIT_DIR" "$CONF_DIR"
+# live/ holds one env file per live-trader instance, written by live.start.
+mkdir -p "$UNIT_DIR" "$CONF_DIR" "$CONF_DIR/live"
 
 # Paths the units cannot express: WINEPREFIX differs per user, DISPLAY differs
 # per host. Kept out of the units so changing them needs no reinstall.
@@ -61,7 +68,7 @@ PUBLIC_REPORTS_URL=$reports_url
 EOF
 
 for u in "${units[@]}"; do
-    sed "s|@REPO@|$REPO|g" "$REPO/deploy/units/$u" > "$UNIT_DIR/$u"
+    sed -e "s|@REPO@|$REPO|g" -e "s|@TRADING@|$TRADING|g" "$REPO/deploy/units/$u" > "$UNIT_DIR/$u"
 done
 
 # Without linger, user units die at logout — which is the entire problem this
@@ -76,10 +83,11 @@ systemctl --user daemon-reload
 
 echo "installed ${#units[@]} unit(s) for $USER"
 echo "  repo    $REPO"
+echo "  trading $TRADING"
 echo "  display $display"
 echo "  reports $reports_url (bind $reports_bind)"
 echo "  units   $UNIT_DIR"
-[ "$HEADLESS" = 1 ] && echo "  headless: xvfb + mt5-terminal included"
+[ "$HEADLESS" = 1 ] && echo "  headless: xvfb, mt5-terminal and live-trader@ included"
 echo
 echo "next:"
 [ "$HEADLESS" = 1 ] && echo "  systemctl --user enable --now xvfb mt5-terminal"

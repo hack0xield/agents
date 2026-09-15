@@ -40,6 +40,11 @@ CALLS = [
     # Delivering to a real chat on every smoke run would be rude.
     ("backtests.send_report", {"pattern_id": "DOES_NOT_EXIST"}),
     ("backtests.list_strategies", {}),
+    # Must answer cleanly whether or not a live trader has ever run here.
+    ("live.status", {}),
+    # Unknown configs exercise the guards without starting or stopping anything.
+    ("live.start", {"config": "smoke-no-such-config"}),
+    ("live.stop", {"config": "smoke-no-such-config"}),
 ]
 
 # Ad-hoc runs live in a different directory from validated ones. get_report and
@@ -65,7 +70,8 @@ async def main() -> int:
                         "backtests.search", "backtests.get_summary",
                         "backtests.get_report", "backtests.get_series",
                         "backtests.send_report", "backtests.run",
-                        "backtests.list_strategies", "backtests.fetch_data"}
+                        "backtests.list_strategies", "backtests.fetch_data",
+                        "live.status", "live.start", "live.stop"}
             if names != expected:
                 print(f"  FAIL tool list: missing={expected - names} extra={names - expected}")
                 failed += 1

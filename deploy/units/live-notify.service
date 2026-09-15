@@ -1,0 +1,21 @@
+# Tells every paired user what the live traders do: order events as they
+# happen, and a daily status. Reads the runners' files, so it may restart at
+# any time without affecting trading, and resumes where it stopped.
+#
+# Sends with the orchestrator's bot token. sendMessage from a second process
+# does not conflict with the orchestrator's long poll; a second copy of this
+# service on another host would, however, send every message twice.
+[Unit]
+Description=Live trader notifications (Telegram)
+After=network-online.target
+PartOf=trading-assistant.target
+
+[Service]
+EnvironmentFile=-%h/.config/trading-assistant/env
+WorkingDirectory=@REPO@
+ExecStart=@REPO@/scripts/live-notify.sh run
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=trading-assistant.target

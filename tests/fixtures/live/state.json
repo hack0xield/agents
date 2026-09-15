@@ -1,0 +1,52 @@
+{
+  "updated_at": "2026-09-16T21:00:00+00:00",
+  "running": true,
+  "started_at": "2026-09-15T16:48:10+00:00",
+  "stopped_at": null,
+  "pid": 41234,
+  "strategy": "mz50",
+  "symbol": "EURUSD",
+  "timeframe": "H4",
+  "config": "configs/strategies/mz50.yaml",
+  "magic": 954607734,
+  "mode": "live",
+  "paper": false,
+  "account": {
+    "login": 12345678,
+    "server": "MetaQuotes-Demo",
+    "trade_mode": "demo"
+  },
+  "last_closed_bar": "2026-09-16T16:00:00+00:00",
+  "forming_bar": "2026-09-16T20:00:00+00:00",
+  "balance": 100412.5,
+  "equity": 100380.1,
+  "source": "account",
+  "positions": [
+    {
+      "ticket": 5550101,
+      "side": "SELL",
+      "volume": 0.1,
+      "price": 1.1742,
+      "sl": 1.1811,
+      "tp": 1.168,
+      "tag": "mz50 cross z41",
+      "entry_time": "2026-09-16T04:00:00+00:00",
+      "profit": -32.4
+    }
+  ],
+  "resting_orders": [],
+  "queued_orders": [],
+  "margin": {
+    "contract": "6E",
+    "as_of": "2026-05-01",
+    "maintenance": 2400.0,
+    "age_days": 138,
+    "stale": true,
+    "stale_after_days": 30
+  },
+  "last_error": {
+    "time": "2026-09-16T17:12:00+00:00",
+    "error": "positions_get: IPC timeout (-10005)"
+  },
+  "failure": null
+}

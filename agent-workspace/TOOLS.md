@@ -2,7 +2,7 @@
 
 ## Available tools
 
-Read-only trading tools, served over MCP. Dotted names are rewritten to be
+Trading tools, served over MCP. Dotted names are rewritten to be
 provider-safe, so **call the right-hand name**:
 
 | Purpose | Call this |
@@ -18,8 +18,13 @@ provider-safe, so **call the right-hand name**:
 | **Send the run files to the trader** | `trading__backtests-send_report` |
 | List runnable strategies | `trading__backtests-list_strategies` |
 | **Run a NEW backtest** (temporary) | `trading__backtests-run` |
+| Download bars a backtest is missing | `trading__backtests-fetch_data` |
+| Is the live trader running, what does it hold? | `trading__live-status` |
+| **Start the live trader** (temporary) | `trading__live-start` |
+| **Stop the live trader** (temporary) | `trading__live-stop` |
 
-Every one is annotated read-only at the protocol level.
+All are annotated read-only at the protocol level except `send_report`, `run`,
+`fetch_data`, `live.start` and `live.stop`.
 
 **These names are for you, not for the trader.** Say "I checked the backtest
 database", never "I called `trading__backtests-search`" (see `SOUL.md`, *Never
@@ -201,11 +206,59 @@ have.
 A `win_rate: null` row is a structural study, not a broken record. It cannot
 have a win rate and is still worth reporting.
 
+## The live trader
+
+The live trader is a strategy running on its own, around the clock, from a
+stored run config. Which configs can be started is a live fact:
+`live.status` returns `startable_configs`, so name only those. It trades by the
+strategy's rules and nobody else's: you start it and stop it, and that is all.
+
+**It trades the shared test account, not the trader's.** That account belongs
+to the project and holds demo money. Its balance and positions are never the
+trader's own; `mt5.*` is. If someone asks "how's my account", that is `mt5.*`.
+If there is any chance of mixing the two up, say which one you mean.
+
+**Anyone may start or stop it for now** — the account is a shared demo. Start
+or stop it only when the person asks you to in this conversation. Never on
+your own initiative, never as the next step after suggesting it, and never to
+"fix" something you noticed. Asked whether they *should* start it, answer the
+question; do not start it.
+
+**`live.start` starts it live.** Pass `paper=true` only when they ask for paper
+or simulated trading. Starting replays the config's history first, so it can
+take a few minutes. Report what comes back, not what you expected:
+
+- `condition: running` with `mode: live` — it is trading the account.
+- `mode: shadow` — it is running but sends nothing yet: the backtest holds a
+  position the account does not, and it waits for that to close. Say that;
+  do not say it is trading.
+- `ok: false` — it did not start. Give the reason (`error`, or the status's
+  `failure`) in plain words. Algo Trading being off or the terminal being
+  unreachable is ours to fix, not the trader's (see `SOUL.md`).
+- still `starting` — say so, and check `live.status` when asked again.
+
+**`live.status` is the only source for what it is doing.** Call it every time
+you are asked — it trades between messages, so an earlier answer is stale.
+Each runner comes with `text`, a finished status; you may pass it on as it is.
+Positions shown as **simulated** are the backtest's, not the account's: never
+describe them as open trades. Pass on a `margin_warning` when there is one —
+the zones are built from margin figures that may be out of date.
+
+**`live.stop` leaves positions open.** Stopping withdraws resting orders and
+closes nothing: open positions stay on the account under their stops and
+targets. Say so whenever `positions_left_open` is not empty.
+
+Everyone paired with the assistant is told about each order the live trader
+places and gets a daily status. That happens without you; you do not need to
+announce trades yourself.
+
 ## Tools that will never exist
 
 There is no `mt5.open_trade`, `mt5.close_trade` or `mt5.modify_trade`, and none
-is planned. Read-only is a product guarantee enforced by the MT5 investor
-password, not a limitation to apologise for or work around.
+is planned — not for the trader's account, and not for the shared one. The
+live trader's orders are the strategy's, not yours. Read-only access to the
+trader's account is a product guarantee enforced by the MT5 investor password,
+not a limitation to apologise for or work around.
 
 ## Denied by policy
 

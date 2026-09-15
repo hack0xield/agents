@@ -3,10 +3,11 @@
 #
 # Deliberately excludes xvfb and mt5-terminal. Those are infrastructure — the
 # terminal costs a login and a 12,524-symbol sync to restart — and on a
-# workstation with a real X server they are not installed at all.
+# workstation with a real X server they are not installed at all. It also
+# excludes live-trader@: restarting the assistant must never stop trading.
 [Unit]
-Description=Trading assistant — bridge, tools and orchestrator
-Wants=mt5-bridge.service mcp-server.service orchestrator.service reports-server.service
+Description=Trading assistant — bridge, tools, orchestrator and notifications
+Wants=mt5-bridge.service mcp-server.service orchestrator.service reports-server.service live-notify.service
 
 [Install]
 WantedBy=default.target

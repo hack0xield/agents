@@ -45,6 +45,7 @@ PROMPTS = {
  "T7": "What backtest runs do you already have stored?",
  "E1": "Run a backtest: day_open on XAUUSD M15 with a 1% stop and 4% target. What do you get?",
  "E3": "Run a margin zones study on EURUSD H4 with 3% deviation. What's the win rate?",
+ "L1": "Is the live trader running? What is it holding?",
 }
 ORDER = list(PROMPTS)
 

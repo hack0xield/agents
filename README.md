@@ -80,13 +80,20 @@ switching is a single line.
 
 `mt5.get_account` · `get_positions` · `get_trade_history` ·
 `get_connection_status` · `backtests.search` · `get_summary` · `get_report` ·
-`get_series` · `send_report` · `list_strategies` · `run` · `fetch_data`
+`get_series` · `send_report` · `list_strategies` · `run` · `fetch_data` ·
+`live.status` · `live.start` · `live.stop`
 
-All read-only except `send_report`, `run` and `fetch_data`, which are annotated
-honestly. **There is no tool that can place, modify or close a trade** (§10).
+All read-only except `send_report`, `run`, `fetch_data`, `live.start` and
+`live.stop`, which are annotated honestly. **There is no tool that can place,
+modify or close a trade** (§10).
 
-`backtests.run` is a temporary deviation from §33 —
-see [docs/BACKTEST_EXECUTION.md](docs/BACKTEST_EXECUTION.md).
+Two temporary deviations from the spec:
+
+- `backtests.run` runs new backtests (§33) —
+  see [docs/BACKTEST_EXECUTION.md](docs/BACKTEST_EXECUTION.md).
+- `live.start` / `live.stop` run a strategy that trades the shared test account,
+  and every paired user is told about its orders —
+  see [docs/LIVE_TRADING.md](docs/LIVE_TRADING.md).
 
 ## Testing
 

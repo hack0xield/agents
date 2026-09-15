@@ -1,4 +1,4 @@
-"""Read-only MCP tools for the trading assistant POC.
+"""MCP tools for the trading assistant POC.
 
 `backtests.*` reads the backtester's run directory live (see runs.py), so a
 new backtest is visible to the assistant the moment it finishes. It previously
@@ -9,13 +9,18 @@ wrong for a system whose whole claim is knowing what has been tested.
 imports no trading function at all. There is no fixture fallback: an
 unreachable terminal reports DISCONNECTED rather than serving a plausible fake.
 
-Two guarantees this module exists to enforce, both from spec §10:
+`live.*` starts, stops and reports on the live trader: a strategy trading the
+shared test account by its own rules (see live_sessions.py).
 
-  1. There is no tool that can place, modify or close a trade, and none will be
-     added. Read-only is a product guarantee backed by the MT5 investor
-     password, not a limitation of the stub.
+The guarantee this module exists to enforce, from spec §10: there is no tool
+that can place, modify or close a trade, and none will be added. Read-only
+access to a user's account is backed by the MT5 investor password.
 
-  2. `backtests.*` retrieves stored results. It never runs a backtest (§33).
+Two POC deviations from the spec, each recorded with its reasons:
+
+  1. `backtests.run` runs new backtests (§33) — docs/BACKTEST_EXECUTION.md.
+  2. `live.start` and `live.stop` run a strategy that trades the shared test
+     account ("the assistant does not execute trades") — docs/LIVE_TRADING.md.
 
 Run:  .venv/bin/python mcp_server/server.py
 """
@@ -27,10 +32,13 @@ import json
 import os
 import subprocess
 import sys
+import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+import live_sessions
 import mt5_live
 import runs
 from mcp.server import MCPServer
@@ -986,6 +994,220 @@ def _telegram_send_document(token: str, chat_id: str, filename: str,
             return bool(payload.get("ok")), json.dumps(payload)[:200]
     except Exception as e:
         return False, f"{type(e).__name__}: {e}"
+
+
+# ─────────────────────────── live.* — TEMPORARY ─────────────────────────────
+# The spec says the assistant does not execute trades, and §10 rules out trade
+# tools. These start and stop a process that trades a strategy by its own
+# rules, on the shared test account, on an explicit decision recorded in
+# docs/LIVE_TRADING.md, for the POC only. There is still no tool that opens,
+# closes or modifies a trade.
+#
+# Any user may call them while the account is a shared demo. The runner refuses
+# a real-money account unless given --allow-real, and nothing here passes it.
+
+_LIVE_ACCOUNT_NOTE = (
+    "The live trader trades the shared test account configured in the trading "
+    "repo — never the user's own MT5 account. Its balance and positions are not "
+    "the user's; mt5.* tools are."
+)
+_LIVE_START_WAIT = 180          # seconds: terminal login, then the history replay
+_live_lock = threading.Lock()   # one start or stop at a time
+
+
+def _live_config(name: str) -> Path | None:
+    """A run config by name, with or without its extension."""
+    for candidate in (name, f"{name}.yaml", f"{name}.yml", f"{name}.json"):
+        path = _resolve_config(candidate)
+        if path is not None:
+            return path
+    return None
+
+
+def _live_unknown_config(name: str) -> dict:
+    return {"ok": False, "error": f"no run config named {name!r}",
+            "configs": [c["config"] for c in _list_configs()]}
+
+
+def _live_not_installed() -> dict:
+    return {"ok": False, "error": "live trading is not installed on this host",
+            "detail": "the live-trader unit exists only on the server; nothing was started"}
+
+
+def _live_summary(path: Path) -> dict:
+    return live_sessions.load_summary(live_sessions.config_arg(path),
+                                      live_sessions.instance_for(path))
+
+
+@mcp.tool(name="live.status", annotations=READ_ONLY)
+@_traced("live.status")
+def live_status(config: str | None = None) -> dict:
+    """Whether the live trader is running, and what it holds.
+
+    Call this every time someone asks about the live trader — whether it is
+    running, what it is doing, its positions, balance or recent trades — and
+    never answer from an earlier call: the runner trades between messages.
+
+    Without `config`, reports every config that has run. Each runner's `text`
+    is a finished status message; `condition` is running / starting / stuck /
+    restarting / failed / stopped / never started, and `mode` is live, shadow
+    or paper. In shadow and paper nothing is sent to the account: positions
+    marked `simulated` are the backtest's, not real trades, and must not be
+    described as open on the account. Pass on `margin_warning` when present.
+
+    This account is the shared test account, not the user's own — say so if
+    it could be confused with their account.
+    """
+    if config:
+        path = _live_config(config)
+        if path is None:
+            return _live_unknown_config(config)
+        paths = [path]
+    else:
+        paths = [p for p in (_live_config(c["config"]) for c in _list_configs()) if p]
+
+    runners = []
+    installed = False
+    for path in paths:
+        instance = live_sessions.instance_for(path)
+        unit = live_sessions.unit_state(instance) if instance else None
+        installed = installed or unit is not None
+        summary = _live_summary(path)
+        if config or summary["session"] or live_sessions.unit_active(unit):
+            runners.append(summary)
+    return {
+        "installed": installed,
+        "runners": runners,
+        "startable_configs": [c["config"] for c in _list_configs()],
+        "account_note": _LIVE_ACCOUNT_NOTE,
+    }
+
+
+@mcp.tool(
+    name="live.start",
+    annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True),
+)
+@_traced("live.start")
+def live_start(config: str, paper: bool = False) -> dict:
+    """Start the live trader on a run config — only when the user asks for it.
+
+    The runner trades the strategy by its own rules on the shared test account
+    until stopped, and keeps running across restarts. It starts **live** by
+    default; pass `paper=true` only when the user asks for paper or simulated
+    trading, and then nothing is ever sent to the account.
+
+    Do not start it on your own initiative, as a suggestion you then act on, or
+    to fix something. Do not start it again if it is already running.
+
+    It first replays the config's history, which takes up to a few minutes.
+    Report what comes back:
+    - `condition: running`, `mode: live` — trading on the account.
+    - `mode: shadow` — running, but nothing is sent until the account holds
+      what the backtest holds; say that plainly rather than "trading".
+    - `ok: false` — it did not start; give `error` / `failure` as they are.
+    - `condition: starting` — still replaying; check with live.status later.
+    """
+    path = _live_config(config)
+    if path is None:
+        return _live_unknown_config(config)
+    instance = live_sessions.instance_for(path)
+    if instance is None:
+        return {"ok": False, "error": f"{path.name} cannot be run as a unit instance"}
+
+    with _live_lock:
+        unit = live_sessions.unit_state(instance)
+        if unit is None:
+            return _live_not_installed()
+        if live_sessions.unit_active(unit):
+            return {"ok": False, "error": f"the live trader for {path.name} is already running",
+                    "status": _live_summary(path)}
+
+        # Two configs of one strategy and symbol share a magic number, and each
+        # would close the other's positions as leftovers.
+        values = _config_values(path)
+        for other in _list_configs():
+            other_path = _live_config(other["config"])
+            if other_path is None or other_path == path:
+                continue
+            other_instance = live_sessions.instance_for(other_path)
+            if not other_instance or not live_sessions.unit_active(
+                    live_sessions.unit_state(other_instance)):
+                continue
+            other_state = _live_summary(other_path)
+            if values and (other_state["strategy"], other_state["symbol"]) == (
+                    values.get("strategy"), values.get("symbol")):
+                return {"ok": False,
+                        "error": f"{other_path.name} is already trading {values.get('strategy')} "
+                                 f"on {values.get('symbol')}; stop it first"}
+
+        requested = datetime.now(timezone.utc).replace(microsecond=0)
+        live_sessions.write_env(instance, path, paper)
+        try:
+            ok, detail = live_sessions.start_unit(instance)
+        except live_sessions.UnitUnavailable as exc:
+            return {"ok": False, "error": "could not start the unit", "detail": str(exc)}
+        if not ok:
+            return {"ok": False, "error": "could not start the unit", "detail": detail}
+
+        deadline = time.monotonic() + _LIVE_START_WAIT
+        while time.monotonic() < deadline:
+            time.sleep(2)
+            summary = _live_summary(path)
+            started = live_sessions.parse_time(summary["started_at"])
+            ours = started is not None and started >= requested
+            if ours and summary["condition"] not in ("starting",):
+                return {"ok": summary["condition"] in ("running", "stuck"),
+                        **({"error": "the live trader did not start"}
+                           if summary["condition"] not in ("running", "stuck") else {}),
+                        "paper": paper, "status": summary, "account_note": _LIVE_ACCOUNT_NOTE}
+            unit = live_sessions.unit_state(instance)
+            if not ours and unit is not None and unit["active_state"] == "failed":
+                return {"ok": False, "error": "the live trader exited before it could report",
+                        "detail": live_sessions.unit_log(instance)}
+        return {"ok": True, "paper": paper, "status": _live_summary(path),
+                "note": "still connecting or replaying history; check live.status shortly",
+                "account_note": _LIVE_ACCOUNT_NOTE}
+
+
+@mcp.tool(
+    name="live.stop",
+    annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True),
+)
+@_traced("live.stop")
+def live_stop(config: str) -> dict:
+    """Stop the live trader on a run config — only when the user asks for it.
+
+    Takes up to a minute and a half. Stopping withdraws resting limit orders
+    and leaves open positions on the account under their broker-side stops
+    and targets: nothing is closed. Say that when positions remain
+    (`positions_left_open`).
+    """
+    path = _live_config(config)
+    if path is None:
+        return _live_unknown_config(config)
+    instance = live_sessions.instance_for(path)
+    if instance is None:
+        return {"ok": False, "error": f"{path.name} cannot be run as a unit instance"}
+
+    with _live_lock:
+        unit = live_sessions.unit_state(instance)
+        if unit is None:
+            return _live_not_installed()
+        if not live_sessions.unit_active(unit):
+            if unit.get("enabled"):
+                live_sessions.stop_unit(instance)    # a failed instance would come back at boot
+            return {"ok": True, "was_running": False, "status": _live_summary(path)}
+        try:
+            ok, detail = live_sessions.stop_unit(instance)
+        except live_sessions.UnitUnavailable as exc:
+            return {"ok": False, "error": "could not stop the unit", "detail": str(exc)}
+        summary = _live_summary(path)
+        if not ok:
+            return {"ok": False, "error": "could not stop the unit", "detail": detail,
+                    "status": summary}
+        left = [] if summary["simulated"] else summary["positions"]
+        return {"ok": True, "was_running": True, "positions_left_open": left,
+                "status": summary}
 
 
 if __name__ == "__main__":

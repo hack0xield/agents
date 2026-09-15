@@ -515,6 +515,14 @@ systemctl show orchestrator -p Slice --value            # system.slice
 system units with no session dependency, so SSH disconnects are irrelevant to
 them and `loginctl enable-linger` is not needed.
 
+### Live trading
+
+`install.sh --headless` also installs `live-trader@.service`, and the target
+now includes `live-notify`. Before the assistant can start a runner, the host
+needs what [LIVE_TRADING.md](LIVE_TRADING.md) lists as Phase 0: PyYAML in the
+Wine Python, Algo Trading enabled in the terminal, and current margin data.
+Operating the units: [deploy/README.md](../deploy/README.md), *Live trader*.
+
 ### Postgres
 
 `docker-compose.yml` carries `restart: unless-stopped`. A container created

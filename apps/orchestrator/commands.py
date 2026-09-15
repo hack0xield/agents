@@ -25,6 +25,7 @@ Ask me things like:
   • what does the evidence say about XAUUSD?
   • how's my account? any open positions?
   • send me the files for that run
+  • is the live trader running? start it / stop it
 
 Commands:
   /help     this message

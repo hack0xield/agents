@@ -41,10 +41,44 @@ outside it, so restarting the app does not cost a terminal login and a
 systemctl --user restart mt5-terminal
 ```
 
+## Live trader
+
+Installed with `--headless` only. `live-trader@<config>` trades
+`../trading/configs/strategies/<config>.yaml` on the shared test account, and is
+**not** part of the target: restarting the assistant never stops trading. The
+assistant's `live.start` and `live.stop` tools enable and disable instances;
+by hand it is the same:
+
+```bash
+systemctl --user status live-trader@mz50
+journalctl --user -u live-trader@mz50 -f
+cat ~/.config/trading-assistant/live/mz50.env     # what it runs, written by live.start
+systemctl --user disable --now live-trader@mz50   # stop, and do not start at boot
+```
+
+A stop takes up to 90 s: the runner withdraws resting orders and writes its
+final state first. Positions stay open under their broker-side stops. After
+three failed starts in half an hour the instance stays failed; `live.start`
+clears that.
+
+`live-notify` (in the target) sends every paired user the runners' order events
+and a daily status (21:00 UTC, `LIVE_STATUS_UTC`). Check a message without a
+runner, or send the real status now:
+
+```bash
+scripts/live-notify.sh status --mock                 # print, from tests/fixtures/live/
+scripts/live-notify.sh events --mock
+scripts/live-notify.sh status --send-to <chat id>    # the real status, to one chat
+```
+
+Its read position is kept in `~/.local/state/trading-assistant/live-notify.json`
+(`LIVE_NOTIFY_STATE`). Delete it and the next start skips everything already
+written, rather than re-sending it.
+
 ## Logs
 
 ```bash
-journalctl --user -u mt5-bridge -u mcp-server -u orchestrator -f
+journalctl --user -u mt5-bridge -u mcp-server -u orchestrator -u live-notify -f
 journalctl --user -u orchestrator -f          # follow
 journalctl --user -u mcp-server -n 50         # recent
 journalctl --user -u mt5-bridge --since '10 min ago'
