@@ -1,7 +1,9 @@
 # PLAN: the assistant runs the live trader
 
-**Status:** Phases 1–3 built (2026-09-15): the runner in the trading repo,
-process control and notifications here. Phases 0 and 4 not done.
+**Status:** Phases 1–3 built and deployed to the server (2026-09-15). Phase 0
+is done except **Algo Trading, still off on the server terminal** — until it is
+enabled, a live start fails with the runner's "Algo Trading is off" refusal.
+Margin data is still stale. Phase 4 not started.
 **Decisions:** founder, 2026-09-15.
 **The spec is unchanged and still describes the intended product.**
 
@@ -122,23 +124,26 @@ untested multi-account question.
 
 ## Phase 0 — host prerequisites
 
-Nothing below runs on the host without these. *Needs approval — open decision A.*
-
-1. Push trading `d47a987`; pull on the host.
-2. Install PyYAML into the host's Wine Python. It is missing there, so
-   `--config mz50.yaml` fails on load; the workstation's has it.
-3. Enable Algo Trading in the host terminal. Its `Config/common.ini` has no
-   `[Experts]` section; the workstation's has `Enabled=1`. Headless, it has to
-   be set in the file with the terminal stopped, which drops the bridge for
-   about a minute. The runner refuses to start while it is off.
-4. Refresh `data/margins/margins.csv` on the host; it ends 2026-05-01. CME
+1. **Done.** Trading `4879052` and agents pulled on the server.
+2. **Done.** PyYAML 6.0.3 installed into the server's Wine Python.
+3. **Not done — the founder's to do.** Algo Trading is off in the server
+   terminal (`terminal_info().trade_allowed` false on 2026-09-15; the account
+   itself allows trading). Its `Config/common.ini` has no `[Experts]` section;
+   the workstation's has `Enabled=1` among its keys. Headless it has to be set
+   in the file with the terminal stopped — which drops the bridge and the bot
+   for a minute or two — then the terminal started again. The runner refuses a
+   live start while it is off, so nothing trades by accident in the meantime.
+4. **Not done.** `data/margins/margins.csv` on the server ends 2026-05-01. CME
    refuses scripted downloads, so this is the PDF from a browser and
    `scripts/margins.py import`, by hand. Until then the status warns.
 
 ## Phase 1 — the runner (trading repo) — built
 
 Specified in `../prompt-trading-live.md`; implemented as specified, 408 tests
-passing. Not yet run against a real terminal. In short:
+passing. A paper run on the server terminal (2026-09-15) logged in, replayed
+7,320 bars (120 trades, ending with one position open), wrote `state.json` with
+the margin warning, and stopped cleanly on SIGTERM. Live sends are not yet
+exercised on a real terminal. In short:
 
 1. **Account guard.** Check the login before every `order_send`. A mismatch
    sends nothing, emits `error`, and is handled as the terminal being
@@ -268,16 +273,17 @@ BUY 0.1 · 1.1638 → 1.17004 · take profit · net +62.40
 
 ## Phase 4 — roll out
 
-1. Deploy by commit → push → pull, both repos. Re-run
-   `deploy/install.sh --headless`, then
-   `systemctl --user restart trading-assistant.target` (starts `live-notify`,
-   reloads the tools and the briefing).
+1. **Done 2026-09-15.** Both repos pulled, `deploy/install.sh --headless`,
+   `trading-assistant.target` restarted with `live-notify`; smoke test and
+   `tests/test-live.sh` green on the server.
 2. `scripts/live-notify.sh status --mock --send-to <founder chat>`; then
    `--send-all`.
 3. `live.start(mz50, paper=true)` on the host through the bot, as a first
    check. Leave it across at least one bar close and one daily status.
-4. Stop, then `live.start(mz50)` — live on the shared demo account. Watch the
-   first fill end to end: event → Telegram → `live.status`.
+4. Stop, then `live.start(mz50)` — live on the shared demo account, once
+   Algo Trading is on. The replay currently ends holding a position, so the
+   runner starts in shadow and trades live only after the backtest closes it.
+   Watch the first fill end to end: event → Telegram → `live.status`.
 
 ---
 
@@ -285,4 +291,4 @@ BUY 0.1 · 1.1638 → 1.17004 · take profit · net +62.40
 
 | | Question | Recommendation |
 |---|---|---|
-| A | Phase 0 on the host: push `d47a987`, install PyYAML in the Wine Python, enable Algo Trading (a short bridge outage)? | Yes, before Phase 4. |
+| A | Enable Algo Trading on the server terminal (a short bridge outage)? | The founder's call; needed before a live start. |
