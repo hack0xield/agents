@@ -2,8 +2,8 @@
 
 **Status:** Phases 1–3 built and deployed to the server (2026-09-15), Algo
 Trading enabled there, and `mz50` live on the shared demo account since
-2026-09-15 21:02 UTC. Fixes from its first days (*First days live*) are built,
-not yet deployed. Margin data is still stale.
+2026-09-15 21:02 UTC. Fixes from its first days (*First days live*) deployed
+and the runner restarted on them 2026-09-18. Margin data is still stale.
 **Decisions:** founder, 2026-09-15.
 **The spec is unchanged and still describes the intended product.**
 
@@ -288,9 +288,9 @@ Started live on the server 2026-09-15 21:02 UTC.
   runner then treated as final: rejected, never resent. mz50 decides at the
   daily rollover, so its orders go out at exactly that moment every time. The
   trading repo now keeps a "not now" answer and resends within the bar
-  (`../prompt-trading-rollover.md`). Until the runner is restarted on that
-  code, the account lacks the limit the backtest still holds; a restart
-  replays and places it at the next open.
+  (`../prompt-trading-rollover.md`). Deployed 2026-09-18 15:46 UTC and the
+  runner restarted: its replay still held the lost SELL limit (1.15099,
+  `mz50 chain z883 d1`), so it waits in shadow and places it at the next open.
 - **The 16 Sep daily status contradicted the messages above it.** It was
   composed at 21:00 UTC, the same second the H4 bar closed, while the runner
   sat 19 s in the refused send: `state.json` still showed the step before
