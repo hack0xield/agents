@@ -1053,7 +1053,9 @@ def live_status(config: str | None = None) -> dict:
     restarting / failed / stopped / never started, and `mode` is live, shadow
     or paper. In shadow and paper nothing is sent to the account: positions
     marked `simulated` are the backtest's, not real trades, and must not be
-    described as open on the account. Pass on `margin_warning` when present.
+    described as open on the account; likewise `simulated_24h` counts the
+    backtest's fills and closes, and only `last_24h` is what traded on the
+    account. Pass on `margin_warning` when present.
 
     This account is the shared test account, not the user's own — say so if
     it could be confused with their account.

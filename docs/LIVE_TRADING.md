@@ -1,8 +1,9 @@
 # PLAN: the assistant runs the live trader
 
-**Status:** Phases 1–3 built and deployed to the server (2026-09-15), and
-Algo Trading enabled there: a live start can be made. Margin data is still
-stale. Phase 4 steps 2–4 not started.
+**Status:** Phases 1–3 built and deployed to the server (2026-09-15), Algo
+Trading enabled there, and `mz50` live on the shared demo account since
+2026-09-15 21:02 UTC. Fixes from its first days (*First days live*) are built,
+not yet deployed. Margin data is still stale.
 **Decisions:** founder, 2026-09-15.
 **The spec is unchanged and still describes the intended product.**
 
@@ -72,7 +73,7 @@ Working defaults, proposed 2026-09-15 and not objected to:
 | | Default |
 |---|---|
 | Stale margin threshold | Newest reading for the strategy's contract older than **30 days**. |
-| Daily status time | **21:00 UTC**. |
+| Daily status time | **21:30 UTC** — half an hour from an H4 bar boundary in summer and winter alike. It was 21:00 until 2026-09-18; see *First days live*. |
 | Shadow and paper events | **Sent**, every message marked as simulated. |
 | The shared terminal | **Account guard now**; a dedicated terminal before a second user links an account. |
 
@@ -228,9 +229,14 @@ failure; event kinds and `state.json` fields as the trading README documents.
    `started`, `mode`, `stopped`, `error`. The same error text from one session
    is sent once an hour at most. **Not sent:** `order_intent`, `exit_intent`,
    `bar_closed`. Shadow and paper order events are sent, marked simulated.
-3. **Daily status** every day at 21:00 UTC (`LIVE_STATUS_UTC`), one message per
+3. **Daily status** every day at 21:30 UTC (`LIVE_STATUS_UTC`), one message per
    runner that is running or stopped within the last 24 hours. Stuck, failed or
    gone-without-a-report comes first; a stale margin reading is a warning line.
+   It waits, up to 5 minutes, while a runner's `state.json` is older than its
+   latest event, so it never mixes a snapshot from before a step with events
+   from after it. "Last 24h" counts only what happened on the account; the
+   backtest's fills and closes, while in shadow or paper, get their own
+   "Simulated 24h" line.
 4. **Recipients** are one function, `recipients()` in
    `apps/live_notify/main.py`: every paired user who is not disabled. A
    subscription table (user × runner × event kinds) replaces its body later;
@@ -244,31 +250,56 @@ failure; event kinds and `state.json` fields as the trading README documents.
    scripts/live-notify.sh status --send-to <chat>          # the real status, now
    scripts/live-notify.sh status --send-all                # to everyone
    ```
+   Every `--mock` message starts `MOCK — sample data, not a real trader`.
    `tests/test-live.sh` (free: no model, database or Telegram) holds the
    summaries, messages, file reading and delivery rules to the fixtures.
 
-As built, from `status --mock` and `events --mock`:
+As built, from `status --mock` and `events --mock` (without their `MOCK` line):
 
 ```text
-mz50 · EURUSD H4 — daily status, 16 Sep 21:00 UTC
-Runner   running 28h 12m · LIVE · heartbeat 12s ago · last bar 16 Sep 16:00 broker time
+mz50 · EURUSD H4 — daily status, 16 Sep 21:30 UTC
+Runner   running 28h 42m · LIVE · heartbeat 12s ago · last bar 16 Sep 16:00 broker time
 Account  balance 100,412.50 · equity 100,380.10 (demo, MetaQuotes-Demo)
 Open     SELL 0.1 @ 1.1742 · SL 1.1811 · TP 1.168 · -32.40
 Resting  none
 Last 24h 1 filled · 1 closed (+62.40) · 2 rejected · 2 errors
+Simulated 24h 0 filled · 1 closed (+41.30) — the backtest's, not on the account
 Last error  positions_get: IPC timeout (-10005)
 ⚠ Margin data is 138 days old (6E, 2026-05-01) — zones may use an outdated margin.
 ```
 
 ```text
-mz50 · EURUSD · live — order filled
-SELL 0.1 @ 1.1742 · SL 1.1811 · TP 1.168
+mz50 · EURUSD — now trading live
+sending BUY 0.1 at market
 ```
 
 ```text
-mz50 · EURUSD · live — position closed
-BUY 0.1 · 1.1638 → 1.17004 · take profit · net +62.40
+mz50 · EURUSD · live — order rejected
+BUY 0.1 limit 1.1695 — not sent before its bar ended: Market closed (retcode 10018)
 ```
+
+## First days live
+
+Started live on the server 2026-09-15 21:02 UTC.
+
+- **The first live order was lost.** On 16 Sep the replay's position closed
+  and the runner went live at the next open — 00:00 on the broker's clock, the
+  daily break. Its SELL limit was answered "Market closed" (10018), which the
+  runner then treated as final: rejected, never resent. mz50 decides at the
+  daily rollover, so its orders go out at exactly that moment every time. The
+  trading repo now keeps a "not now" answer and resends within the bar
+  (`../prompt-trading-rollover.md`). Until the runner is restarted on that
+  code, the account lacks the limit the backtest still holds; a restart
+  replays and places it at the next open.
+- **The 16 Sep daily status contradicted the messages above it.** It was
+  composed at 21:00 UTC, the same second the H4 bar closed, while the runner
+  sat 19 s in the refused send: `state.json` still showed the step before
+  (SHADOW, the SELL open) while the events already said closed and live.
+  Hence 21:30 and the wait for a current snapshot.
+- **A simulated close read as a trade.** Both daily statuses counted the
+  backtest's +87.20 in "Last 24h", the second in LIVE mode with the balance
+  untouched at 100,000.00. Hence the separate "Simulated 24h" line.
+- **A mock status was taken for a real one.** Hence the `MOCK` line.
 
 ## Phase 4 — roll out
 

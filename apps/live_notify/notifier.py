@@ -30,6 +30,13 @@ SENT, RETRY, REFUSED = "sent", "retry", "refused"
 ERROR_REPEAT_SECONDS = 3600
 #: A runner that stopped longer ago than this gets no daily status.
 STATUS_WINDOW = timedelta(hours=24)
+#: The daily status is sent at 21:30 UTC by default: half an hour from an H4
+#: bar boundary on the broker's clock in both summer (…21:00) and winter
+#: (…22:00), when the runners are busiest.
+STATUS_AT = clock_time(21, 30)
+#: How long the daily status waits for a runner's state.json to catch up with
+#: its events before it is sent anyway.
+SNAPSHOT_GRACE = timedelta(minutes=5)
 
 Send = Callable[[int, str], str]
 Recipients = Callable[[dict], list[int]]
@@ -62,7 +69,7 @@ class Notifier:
         recipients: Recipients,
         progress: Progress,
         live_dir: Path | None = None,
-        status_at: clock_time = clock_time(21, 0),
+        status_at: clock_time = STATUS_AT,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
         sleep: Callable[[float], None] = time.sleep,
         stopping: Callable[[], bool] = lambda: False,
@@ -137,11 +144,21 @@ class Notifier:
         today = now.date().isoformat()
         if now.time() < self.status_at or self.progress.status_sent_on == today:
             return
+        due = datetime.combine(now.date(), self.status_at, tzinfo=timezone.utc)
+        if now - due < SNAPSHOT_GRACE and self._snapshots_behind():
+            return                              # a runner is mid-step; wait for its snapshot
         for text in self.statuses(now, label="daily status"):
             if not self.deliver(text, {"kind": "daily_status"}):
                 return
         self.progress.status_sent_on = today
         self.progress.save()
+
+    def _snapshots_behind(self) -> bool:
+        return any(
+            live_sessions.snapshot_behind(live_sessions.read_json(d / "state.json"),
+                                          d / "events.jsonl")
+            for d in live_sessions.sessions(self.live_dir)
+        )
 
     def statuses(self, now: datetime, label: str = "status", recent_only: bool = True,
                  config: str | None = None) -> list[str]:

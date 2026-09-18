@@ -27,9 +27,12 @@ sys.path.insert(1, str(REPO / "mcp_server"))
 sys.path.insert(2, str(REPO / "apps" / "orchestrator"))
 
 import live_sessions  # noqa: E402
-from notifier import STATUS_WINDOW, Notifier, Progress  # noqa: E402
+from notifier import STATUS_AT, STATUS_WINDOW, Notifier, Progress  # noqa: E402
 
 FIXTURES = REPO / "tests" / "fixtures" / "live"
+#: Leads every message built from the fixtures, so sample data is never
+#: mistaken for a real trader.
+MOCK = "MOCK — sample data, not a real trader"
 PROGRESS = Path(os.environ.get("LIVE_NOTIFY_STATE")
                 or Path.home() / ".local" / "state" / "trading-assistant" / "live-notify.json"
                 ).expanduser()
@@ -63,7 +66,10 @@ def send(chat_id: int, text: str) -> str:
 
 
 def status_time() -> clock_time:
-    hours, _, minutes = os.environ.get("LIVE_STATUS_UTC", "21:00").partition(":")
+    configured = os.environ.get("LIVE_STATUS_UTC")
+    if not configured:
+        return STATUS_AT
+    hours, _, minutes = configured.partition(":")
     return clock_time(int(hours), int(minutes or 0))
 
 
@@ -97,7 +103,7 @@ def status(args) -> int:
         events = [e for e in live_sessions.tail(FIXTURES / "events.jsonl", 0)[0]
                   if live_sessions.parse_time(e["time"]) >= now - STATUS_WINDOW]
         summary = live_sessions.summarize(state, events, None, now, state["config"])
-        texts = [live_sessions.status_text(summary, now, "daily status")]
+        texts = [f"{MOCK}\n{live_sessions.status_text(summary, now, 'daily status')}"]
     else:
         config = f"configs/strategies/{Path(args.config).stem}.yaml" if args.config else None
         notifier = Notifier(send, recipients, Progress(PROGRESS))
@@ -125,6 +131,7 @@ def events(args) -> int:
         if text is None:
             print(f"-- {event.get('time')} {event.get('kind')}: not sent\n")
         else:
+            text = f"{MOCK}\n{text}" if args.mock else text
             texts.append(text)
             print(f"-- {event.get('time')} {event.get('kind')}")
             print(text + "\n")

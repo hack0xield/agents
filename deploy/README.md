@@ -62,7 +62,7 @@ three failed starts in half an hour the instance stays failed; `live.start`
 clears that.
 
 `live-notify` (in the target) sends every paired user the runners' order events
-and a daily status (21:00 UTC, `LIVE_STATUS_UTC`). Check a message without a
+and a daily status (21:30 UTC, `LIVE_STATUS_UTC`). Check a message without a
 runner, or send the real status now:
 
 ```bash

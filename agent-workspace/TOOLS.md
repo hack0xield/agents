@@ -241,7 +241,9 @@ take a few minutes. Report what comes back, not what you expected:
 you are asked — it trades between messages, so an earlier answer is stale.
 Each runner comes with `text`, a finished status; you may pass it on as it is.
 Positions shown as **simulated** are the backtest's, not the account's: never
-describe them as open trades. Pass on a `margin_warning` when there is one —
+describe them as open trades. The same goes for `simulated_24h`: those fills
+and closes happened in the backtest only. What traded on the account is
+`last_24h`. Pass on a `margin_warning` when there is one —
 the zones are built from margin figures that may be out of date.
 
 **`live.stop` leaves positions open.** Stopping withdraws resting orders and

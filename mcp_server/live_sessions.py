@@ -13,6 +13,7 @@ Standard library only: apps/live_notify imports this from another venv path.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from datetime import datetime, timedelta, timezone
@@ -250,22 +251,11 @@ def summarize(state: dict | None, events: list[dict], unit: dict | None,
     else:
         mode = state.get("mode")
 
-    counts = {"filled": 0, "closed": 0, "net_pnl": 0.0, "rejected": 0, "cancelled": 0,
-              "errors": 0}
-    for event in events:
-        kind = event.get("kind")
-        if kind == "order_filled":
-            counts["filled"] += 1
-        elif kind == "position_closed" and not event.get("leftover"):
-            counts["closed"] += 1
-            counts["net_pnl"] += float(event.get("net_pnl") or 0.0)
-        elif kind == "order_rejected":
-            counts["rejected"] += 1
-        elif kind == "order_cancelled":
-            counts["cancelled"] += 1
-        elif kind == "error":
-            counts["errors"] += 1
-    counts["net_pnl"] = round(counts["net_pnl"], 2)
+    # Only what happened on the account counts as trading. In shadow the fills
+    # and closes are the backtest's, and are kept apart so they cannot read as
+    # real trades; errors are the runner's own, whatever its mode.
+    live = [e for e in events if e.get("mode") == "live" or e.get("kind") == "error"]
+    simulated = [e for e in events if e.get("mode") == "shadow" and e.get("kind") != "error"]
 
     margin = state.get("margin")
     margin_warning = None
@@ -296,7 +286,8 @@ def summarize(state: dict | None, events: list[dict], unit: dict | None,
         "positions": state.get("positions") or [],
         "resting_orders": state.get("resting_orders") or [],
         "queued_orders": state.get("queued_orders") or [],
-        "last_24h": counts,
+        "last_24h": _count(live),
+        "simulated_24h": _count(simulated),
         "last_error": state.get("last_error"),
         "failure": state.get("failure"),
         "margin": margin,
@@ -305,6 +296,55 @@ def summarize(state: dict | None, events: list[dict], unit: dict | None,
     }
     summary["text"] = status_text(summary, now)
     return summary
+
+
+def _count(events: list[dict]) -> dict:
+    counts = {"filled": 0, "closed": 0, "net_pnl": 0.0, "rejected": 0, "cancelled": 0,
+              "errors": 0}
+    for event in events:
+        kind = event.get("kind")
+        if kind == "order_filled":
+            counts["filled"] += 1
+        elif kind == "position_closed" and not event.get("leftover"):
+            counts["closed"] += 1
+            counts["net_pnl"] += float(event.get("net_pnl") or 0.0)
+        elif kind == "order_rejected":
+            counts["rejected"] += 1
+        elif kind == "order_cancelled":
+            counts["cancelled"] += 1
+        elif kind == "error":
+            counts["errors"] += 1
+    counts["net_pnl"] = round(counts["net_pnl"], 2)
+    return counts
+
+
+def last_event_time(path: Path) -> datetime | None:
+    """When the newest complete event in an events.jsonl was written."""
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            fh.seek(max(0, fh.tell() - 8192))
+            chunk = fh.read()
+    except OSError:
+        return None
+    for line in reversed(chunk.split(b"\n")):
+        try:
+            return parse_time(json.loads(line).get("time"))
+        except (ValueError, AttributeError):
+            continue
+    return None
+
+
+def snapshot_behind(state: dict | None, events_path: Path) -> bool:
+    """True while a runner has written events its state.json does not show yet.
+
+    A runner writes state.json after each step, and a step can take a while —
+    a send the broker is slow to answer holds it — so for a moment the events
+    say more than the snapshot does.
+    """
+    updated = parse_time((state or {}).get("updated_at"))
+    last = last_event_time(events_path)
+    return bool(updated and last and last > updated)
 
 
 def load_summary(config: str, instance: str | None, live_dir: Path | None = None,
@@ -354,6 +394,12 @@ def _stamp(value) -> str:
 
 def _levels(sl, tp) -> str:
     return f"SL {_px(sl)} · TP {_px(tp)}"
+
+
+def _order(d: dict) -> str:
+    """An entry as the chat reads it: side, volume, and a limit or at market."""
+    where = f"limit {_px(d.get('limit'))}" if d.get("limit") is not None else "at market"
+    return f"{d.get('side')} {d.get('volume')} {where}"
 
 
 def _title(summary_or_event: dict) -> str:
@@ -417,6 +463,11 @@ def status_text(s: dict, now: datetime | None = None, label: str = "status") -> 
     closed = f"{c['closed']} closed ({_signed(c['net_pnl'])})" if c["closed"] else "0 closed"
     lines.append(f"Last 24h {c['filled']} filled · {closed} · {c['rejected']} rejected · "
                  f"{c['errors']} errors")
+    b = s["simulated_24h"]
+    if b["filled"] or b["closed"]:
+        closed = f"{b['closed']} closed ({_signed(b['net_pnl'])})" if b["closed"] else "0 closed"
+        lines.append(f"Simulated 24h {b['filled']} filled · {closed} — the backtest's, "
+                     f"not on the account")
     if s.get("last_error") and c["errors"]:
         lines.append(f"Last error  {s['last_error'].get('error')}")
     if s["margin_warning"]:
@@ -453,7 +504,7 @@ def event_text(event: dict) -> str | None:
         if d.get("action"):
             body = [f"{d.get('action')} rejected", f"ticket {d.get('ticket')} — {d.get('reason')}"]
         else:
-            body = ["order rejected", f"{d.get('side')} {d.get('volume')} — {d.get('reason')}"]
+            body = ["order rejected", f"{_order(d)} — {d.get('reason')}"]
     elif kind == "position_modified":
         moves = [f"{name} {_px(d.get(f'{key}_from'))} → {_px(d.get(key))}"
                  for name, key in (("SL", "sl"), ("TP", "tp")) if d.get(f"{key}_from") != d.get(key)]
@@ -491,6 +542,8 @@ def event_text(event: dict) -> str | None:
             body.append(f"took over {adopted} position(s) or order(s) already on the account")
         if cleared:
             body.append(f"closed or removed {cleared} that were not the strategy's")
+        for order in d.get("queued") or []:
+            body.append(f"sending {_order(order)}")
     elif kind == "stopped":
         head = _title(d)
         body = [f"runner stopped after a failure: {d['failure']}" if d.get("failure")

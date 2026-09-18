@@ -45,6 +45,18 @@ check("last 24h counts", s["last_24h"] == {"filled": 1, "closed": 1, "net_pnl": 
                                             "rejected": 2, "cancelled": 1, "errors": 2},
       s["last_24h"])
 check("a leftover close is not counted as a trade", s["last_24h"]["closed"] == 1)
+check("the backtest's close is kept apart from the account's",
+      s["simulated_24h"]["closed"] == 1 and s["simulated_24h"]["net_pnl"] == 41.3,
+      s["simulated_24h"])
+check("and reads as the backtest's", "Simulated 24h 0 filled · 1 closed (+41.30) — the backtest's"
+      in s["text"], s["text"])
+shadow_error = {"time": state["updated_at"], "kind": "error", "mode": "shadow", "error": "x",
+                "retrying": True}
+check("an error in shadow is still the runner's own",
+      ls.summarize(state, day + [shadow_error], None, at)["last_24h"]["errors"] == 3)
+quiet = [e for e in day if e.get("mode") != "shadow"]
+check("no simulated line without simulated trades",
+      "Simulated 24h" not in ls.summarize(state, quiet, None, at)["text"])
 check("stale margin is warned", s["margin_warning"] and "138 days" in s["margin_warning"])
 check("the text carries the open position", "SELL 0.1 @ 1.1742" in s["text"], s["text"])
 
@@ -87,6 +99,12 @@ shadow_fill = next(e for e in events if e["kind"] == "order_filled" and e["mode"
 check("a shadow fill says simulated", "simulated" in ls.event_text(shadow_fill))
 live_fill = next(e for e in events if e["kind"] == "order_filled" and e["mode"] == "live")
 check("a live fill says live", "· live —" in ls.event_text(live_fill))
+rejected = next(e for e in events if e["kind"] == "order_rejected" and not e.get("action"))
+check("a rejected limit says it was a limit, and where", "BUY 0.1 limit 1.1695 —"
+      in ls.event_text(rejected), ls.event_text(rejected))
+mode = next(e for e in events if e["kind"] == "mode")
+check("going live says what it is sending", "sending BUY 0.1 at market" in ls.event_text(mode),
+      ls.event_text(mode))
 check("a stop after a failure says why",
       "boom" in ls.event_text({"kind": "stopped", "mode": "live", "failure": "boom"}))
 
@@ -116,6 +134,10 @@ env = ls.write_env("mz50", Path("configs/strategies/mz50.yaml"), paper=True, env
 check("a paper start passes --paper", "LIVE_ARGS=--paper\n" in env.read_text())
 check("--allow-real is never written", "allow-real" not in env.read_text())
 check("a config stem is an instance", ls.instance_for(Path("mz50.yaml")) == "mz50")
+check("a snapshot older than the last event is behind",
+      ls.snapshot_behind({"updated_at": "2026-09-16T19:00:00+00:00"}, FIX / "events.jsonl"))
+check("a snapshot newer than the last event is not",
+      not ls.snapshot_behind(state, FIX / "events.jsonl"))
 check("a name systemd would mangle is refused", ls.instance_for(Path("a b.yaml")) is None)
 
 # ── the notifier ────────────────────────────────────────────────────────────
@@ -188,21 +210,43 @@ n.tell_events()
 check("a refused chat is not retried", [(c, o) for c, _, o in sent] == [(111, "refused"), (222, "sent")],
       sent)
 
-n, sent, _ = notifier_in(work, now=datetime(2026, 9, 16, 20, 59, tzinfo=timezone.utc))
+def at_utc(day, hour, minute, second=0):
+    return datetime(2026, 9, day, hour, minute, second, tzinfo=timezone.utc)
+
+n, sent, _ = notifier_in(work, now=at_utc(16, 21, 29))
 n.tell_daily_status()
-check("no daily status before its time", sent == [])
-n, sent, _ = notifier_in(work, now=datetime(2026, 9, 16, 21, 0, 12, tzinfo=timezone.utc))
+check("no daily status before 21:30", sent == [])
+# The events appended above are newer than the session's state.json.
+n, sent, _ = notifier_in(work, now=at_utc(16, 21, 30, 12))
 n.tell_daily_status()
-check("the daily status goes to everyone at its time",
+check("the daily status waits while a snapshot is behind its events", sent == [])
+n, sent, _ = notifier_in(work, now=at_utc(16, 21, 35, 30))
+n.tell_daily_status()
+check("and goes to everyone once the wait is over",
       len(sent) == 2 and "daily status" in sent[0][1], [t for _, t, _ in sent])
 n.tell_daily_status()
-check("and only once that day", len(sent) == 2)
+check("only once that day", len(sent) == 2)
+
+fresh = {**state, "updated_at": "2026-09-17T21:30:00+00:00"}
+(session / "state.json").write_text(json.dumps(fresh))
+n, sent, _ = notifier_in(work, now=at_utc(17, 21, 30, 5))
+n.tell_daily_status()
+check("a current snapshot is sent at once", len(sent) == 2, [t for _, t, _ in sent])
 
 old = {**state, "running": False, "stopped_at": "2026-09-10T10:00:00+00:00"}
 (session / "state.json").write_text(json.dumps(old))
-n, sent, _ = notifier_in(work, now=datetime(2026, 9, 17, 21, 0, tzinfo=timezone.utc))
+n, sent, _ = notifier_in(work, now=at_utc(18, 21, 36))
 n.tell_daily_status()
 check("a runner stopped days ago gets no daily status", sent == [], [t for _, t, _ in sent])
+
+# ── previews ────────────────────────────────────────────────────────────────
+import subprocess
+for command in (["status", "--mock"], ["events", "--mock", "--last", "3"]):
+    out = subprocess.run([sys.executable, "apps/live_notify/main.py", *command],
+                         capture_output=True, text=True).stdout
+    messages = [m for m in out.split("\n\n") if m.strip() and "not sent" not in m]
+    check(f"every {command[0]} --mock message says it is sample data",
+          messages and all("MOCK — sample data" in m for m in messages), out)
 
 # ── the tools, without starting anything ────────────────────────────────────
 import server
