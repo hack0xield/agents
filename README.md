@@ -84,7 +84,9 @@ switching is a single line.
 `live.status` · `live.start` · `live.stop`
 
 All read-only except `send_report`, `run`, `fetch_data`, `live.start` and
-`live.stop`, which are annotated honestly. **There is no tool that can place,
+`live.stop`, which are annotated honestly. The four `mt5.*` tools are off
+unless `MT5_ACCOUNT_TOOLS=on`: the live trader shares their MT5 terminal
+([docs/LIVE_TRADING.md](docs/LIVE_TRADING.md), *First days live*). **There is no tool that can place,
 modify or close a trade** (§10).
 
 Two temporary deviations from the spec:

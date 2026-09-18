@@ -23,7 +23,6 @@ your own account data — I won't invent numbers.
 Ask me things like:
   • what backtests do we have stored?
   • what does the evidence say about XAUUSD?
-  • how's my account? any open positions?
   • send me the files for that run
   • is the live trader running? start it / stop it
 

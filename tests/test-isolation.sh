@@ -65,23 +65,29 @@ with db.session_scope() as s:
     runs = s.scalars(select(models.AgentRun).where(models.AgentRun.user_id == a.id)).all()
     check("agent_runs attributed per user", len(runs) >= 1)
 
-# 5. The model cannot choose whose account it reads.
-res = tools.call_tool("mt5__get_account", {"account_id": "someone-else"},
-                      scope={"account_id": "server-owned"})
-check("model-supplied account_id is discarded",
-      "someone-else" not in res.text, res.text[:120])
+# 5-7 need the mt5.* tools, which are off unless MT5_ACCOUNT_TOOLS=on.
+account_tools = any(t["name"].startswith("mt5__") for t in tools.list_tools())
+if not account_tools:
+    print("  --   mt5.* account tools are off (MT5_ACCOUNT_TOOLS): checks 5-7 skipped")
 
-# 6. A user with no connected account gets NO_ACCOUNT, never someone else's.
-#    The bridge originally read one hardcoded login and would have answered
-#    every user with that account's positions, labelled as their own.
-import json as _json
-res = tools.call_tool("mt5__get_positions", {}, scope={})
-try:
-    body = _json.loads(res.text)
-except ValueError:
-    body = {}
-check("user without an account sees NO_ACCOUNT",
-      body.get("connection_state") == "NO_ACCOUNT", res.text[:160])
+if account_tools:
+    # 5. The model cannot choose whose account it reads.
+    res = tools.call_tool("mt5__get_account", {"account_id": "someone-else"},
+                          scope={"account_id": "server-owned"})
+    check("model-supplied account_id is discarded",
+          "someone-else" not in res.text, res.text[:120])
+
+    # 6. A user with no connected account gets NO_ACCOUNT, never someone else's.
+    #    The bridge originally read one hardcoded login and would have answered
+    #    every user with that account's positions, labelled as their own.
+    import json as _json
+    res = tools.call_tool("mt5__get_positions", {}, scope={})
+    try:
+        body = _json.loads(res.text)
+    except ValueError:
+        body = {}
+    check("user without an account sees NO_ACCOUNT",
+          body.get("connection_state") == "NO_ACCOUNT", res.text[:160])
 
 # 7b. A file cannot be delivered to a chat the model names.
 res = tools.call_tool("backtests__send_report",
@@ -90,16 +96,17 @@ res = tools.call_tool("backtests__send_report",
 check("model-supplied chat_id is discarded",
       "999999999" not in res.text, res.text[:160])
 
-# 7. Naming another user's credential_ref does not fetch it.
-res = tools.call_tool("mt5__get_account", {"credential_ref": "founder-demo"},
-                      scope={})
-try:
-    body = _json.loads(res.text)
-except ValueError:
-    body = {}
-check("model-supplied credential_ref is discarded",
-      body.get("connection_state") == "NO_ACCOUNT" and "balance" not in body,
-      res.text[:160])
+if account_tools:
+    # 7. Naming another user's credential_ref does not fetch it.
+    res = tools.call_tool("mt5__get_account", {"credential_ref": "founder-demo"},
+                          scope={})
+    try:
+        body = _json.loads(res.text)
+    except ValueError:
+        body = {}
+    check("model-supplied credential_ref is discarded",
+          body.get("connection_state") == "NO_ACCOUNT" and "balance" not in body,
+          res.text[:160])
 
 # 6. A disabled user is refused even though the pairing still exists.
 with db.session_scope() as s:

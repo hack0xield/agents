@@ -248,8 +248,24 @@ def _series_for(run_id: str) -> list[str]:
 # ─────────────────────────────── mt5.* ────────────────────────────────────
 # Normalized account state. Broker-specific shapes get flattened here so the
 # agent never sees an MT5 quirk (spec §16).
+#
+# Off unless MT5_ACCOUNT_TOOLS=on. The server has one MT5 terminal, shared by
+# the bridge behind these tools and the live trader. Reading an account makes
+# the bridge log that terminal in with the account's investor password, and on
+# the shared account that leaves the live trader unable to trade
+# (docs/LIVE_TRADING.md, "First days live"). Back on once the live trader has
+# a terminal of its own.
+ACCOUNT_TOOLS = os.environ.get("MT5_ACCOUNT_TOOLS", "off").strip().lower() == "on"
 
-@mcp.tool(name="mt5.get_account", annotations=READ_ONLY)
+
+def _account_tool(name: str):
+    """Register an mt5.* tool only while the account tools are on."""
+    if not ACCOUNT_TOOLS:
+        return lambda fn: fn
+    return mcp.tool(name=name, annotations=READ_ONLY)
+
+
+@_account_tool("mt5.get_account")
 @_traced("mt5.get_account")
 def mt5_get_account(credential_ref: str | None = None) -> dict:
     """Current state of the connected MT5 account: balance, equity, margin,
@@ -272,7 +288,7 @@ def mt5_get_account(credential_ref: str | None = None) -> dict:
     return mt5_live.get_account(credential_ref)
 
 
-@mcp.tool(name="mt5.get_positions", annotations=READ_ONLY)
+@_account_tool("mt5.get_positions")
 @_traced("mt5.get_positions")
 def mt5_get_positions(credential_ref: str | None = None) -> list | dict:
     """Currently open positions. Returns an empty list when flat — an empty
@@ -285,7 +301,7 @@ def mt5_get_positions(credential_ref: str | None = None) -> list | dict:
     return mt5_live.get_positions(credential_ref)
 
 
-@mcp.tool(name="mt5.get_trade_history", annotations=READ_ONLY)
+@_account_tool("mt5.get_trade_history")
 @_traced("mt5.get_trade_history")
 def mt5_get_trade_history(limit: int = 20, symbol: str | None = None,
                           days: int = 90,
@@ -305,7 +321,7 @@ def mt5_get_trade_history(limit: int = 20, symbol: str | None = None,
                                       credential_ref=credential_ref)
 
 
-@mcp.tool(name="mt5.get_connection_status", annotations=READ_ONLY)
+@_account_tool("mt5.get_connection_status")
 @_traced("mt5.get_connection_status")
 def mt5_get_connection_status(credential_ref: str | None = None) -> dict:
     """Whether the MT5 terminal is reachable. Use this when a data call comes

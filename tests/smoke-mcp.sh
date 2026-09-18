@@ -65,6 +65,11 @@ async def main() -> int:
         async with ClientSession(r, w) as s:
             await s.initialize()
             names = {t.name for t in (await s.list_tools()).tools}
+            # The mt5.* tools are off unless MT5_ACCOUNT_TOOLS=on on the server:
+            # all four or none, never some.
+            account = {"mt5.get_account", "mt5.get_positions", "mt5.get_trade_history",
+                       "mt5.get_connection_status"}
+            account_on = bool(names & account)
             expected = {"mt5.get_account", "mt5.get_positions", "mt5.get_trade_history",
                         "mt5.get_connection_status",
                         "backtests.search", "backtests.get_summary",
@@ -72,6 +77,9 @@ async def main() -> int:
                         "backtests.send_report", "backtests.run",
                         "backtests.list_strategies", "backtests.fetch_data",
                         "live.status", "live.start", "live.stop"}
+            if not account_on:
+                expected -= account
+                print("  --   mt5.* account tools are off (MT5_ACCOUNT_TOOLS)")
             if names != expected:
                 print(f"  FAIL tool list: missing={expected - names} extra={names - expected}")
                 failed += 1
@@ -79,6 +87,8 @@ async def main() -> int:
                 print(f"  ok   {len(names)} tools registered")
 
             for tool, args in CALLS:
+                if tool.startswith("mt5.") and not account_on:
+                    continue
                 res = await s.call_tool(tool, args)
                 txt = (getattr(res.content[0], "text", "") if res.content else "") or ""
                 if res.is_error:

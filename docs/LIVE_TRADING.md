@@ -300,6 +300,15 @@ Started live on the server 2026-09-15 21:02 UTC.
   backtest's +87.20 in "Last 24h", the second in LIVE mode with the balance
   untouched at 100,000.00. Hence the separate "Simulated 24h" line.
 - **A mock status was taken for a real one.** Hence the `MOCK` line.
+- **Reading an account made the shared account read-only.** The bridge's
+  entry for the shared demo login holds its *investor* password, the runner's
+  `config.json` its trading one, and the server has one terminal: whichever
+  logged in last decided. The runner's account guard compares login numbers,
+  which are equal, so it could not tell. Found 2026-09-18 after a routine
+  account read at 15:46 turned `account_info().trade_allowed` false under the
+  running trader. The `mt5.*` account tools are off (`MT5_ACCOUNT_TOOLS`)
+  until the live trader has a terminal of its own; pointing the bridge's entry
+  at the trading password was the alternative, and needs the founder's hand.
 
 ## Phase 4 — roll out
 

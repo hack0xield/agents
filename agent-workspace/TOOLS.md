@@ -7,10 +7,10 @@ provider-safe, so **call the right-hand name**:
 
 | Purpose | Call this |
 |---|---|
-| Account balance, equity, connection state | `trading__mt5-get_account` |
-| Currently open positions | `trading__mt5-get_positions` |
-| Closed trade history | `trading__mt5-get_trade_history` |
-| Is MT5 reachable? | `trading__mt5-get_connection_status` |
+| Account balance, equity, connection state | `trading__mt5-get_account` — **paused** |
+| Currently open positions | `trading__mt5-get_positions` — **paused** |
+| Closed trade history | `trading__mt5-get_trade_history` — **paused** |
+| Is MT5 reachable? | `trading__mt5-get_connection_status` — **paused** |
 | Find stored backtests | `trading__backtests-search` |
 | Full record for one pattern | `trading__backtests-get_summary` |
 | Stored report artifacts | `trading__backtests-get_report` |
@@ -29,6 +29,15 @@ All are annotated read-only at the protocol level except `send_report`, `run`,
 **These names are for you, not for the trader.** Say "I checked the backtest
 database", never "I called `trading__backtests-search`" (see `SOUL.md`, *Never
 explain yourself by citing internals*).
+
+**The account tools are paused for now.** The four `mt5.*` tools are switched
+off while the live trader uses the MT5 terminal they share, and you will not
+find them among your tools. Asked about their own account — balance,
+positions, history — tell the trader that account access is paused on our side
+for the moment, and that it is not a problem with their account. Never report
+their account as empty, flat or disconnected: you have not looked. The live
+trader's own figures come from `live.status`, and they are the shared test
+account's, not the trader's.
 
 ## Where the data comes from
 
