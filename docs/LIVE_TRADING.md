@@ -300,6 +300,11 @@ Started live on the server 2026-09-15 21:02 UTC.
   backtest's +87.20 in "Last 24h", the second in LIVE mode with the balance
   untouched at 100,000.00. Hence the separate "Simulated 24h" line.
 - **A mock status was taken for a real one.** Hence the `MOCK` line.
+- **A cancellation did not say which order.** "SELL 0.1 — void level reached"
+  named no level, because the runner's event carried none. It does now, and
+  the chat says what the reason means: "the price reached the level that voids
+  it". Seen 2026-09-23, when the chain's limit was voided as price reached its
+  target first.
 - **Reading an account made the shared account read-only.** The bridge's
   entry for the shared demo login holds its *investor* password, the runner's
   `config.json` its trading one, and the server has one terminal: whichever

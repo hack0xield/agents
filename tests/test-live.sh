@@ -105,6 +105,12 @@ check("a rejected limit says it was a limit, and where", "BUY 0.1 limit 1.1695 �
 mode = next(e for e in events if e["kind"] == "mode")
 check("going live says what it is sending", "sending BUY 0.1 at market" in ls.event_text(mode),
       ls.event_text(mode))
+cancelled = next(e for e in events if e["kind"] == "order_cancelled")
+check("a cancelled order names it and says why in plain words",
+      "BUY 0.1 limit 1.1695 — the price reached the level that voids it"
+      in ls.event_text(cancelled), ls.event_text(cancelled))
+check("a reason with no plain wording is passed through",
+      "— broker said no" in ls.event_text({**cancelled, "reason": "broker said no"}))
 check("a stop after a failure says why",
       "boom" in ls.event_text({"kind": "stopped", "mode": "live", "failure": "boom"}))
 

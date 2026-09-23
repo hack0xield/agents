@@ -475,6 +475,18 @@ def status_text(s: dict, now: datetime | None = None, label: str = "status") -> 
     return "\n".join(lines)
 
 
+#: The runner's own words for why an order ended, in the trader's.
+_WHY = {
+    "void level reached": "the price reached the level that voids it",
+    "cancelled by strategy": "the strategy withdrew it",
+    "runner stopped": "the runner stopped, and a resting order needs it running",
+}
+
+
+def _why(reason) -> str:
+    return _WHY.get(str(reason), str(reason))
+
+
 _REASONS = {"STOP_LOSS": "stop loss", "TAKE_PROFIT": "take profit", "STRATEGY": "strategy exit",
             "SESSION_END": "session end", "END_OF_DATA": "end of data",
             "MARGIN_CALL": "margin call"}
@@ -498,8 +510,7 @@ def event_text(event: dict) -> str | None:
                 f"{d.get('side')} {d.get('volume')} limit {_px(d.get('limit'))} · "
                 f"{_levels(d.get('sl'), d.get('tp'))}"]
     elif kind == "order_cancelled":
-        limit = f" limit {_px(d.get('limit'))}" if d.get("limit") is not None else ""
-        body = ["order cancelled", f"{d.get('side')} {d.get('volume')}{limit} — {d.get('reason')}"]
+        body = ["order cancelled", f"{_order(d)} — {_why(d.get('reason'))}"]
     elif kind == "order_rejected":
         if d.get("action"):
             body = [f"{d.get('action')} rejected", f"ticket {d.get('ticket')} — {d.get('reason')}"]
